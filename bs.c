@@ -86,6 +86,19 @@ free_bucket_list(BucketList *bl)
   }
 }
 
+static void
+print_set(uint set_n) {
+  for(BucketList *bl = g_sets[set_n]; bl; bl = bl->next) {
+    uint base = bl->number * GROUP_SIZE;
+    for(uint i = 0; i < GROUP_SIZE; ++i) {
+      if(BITTEST(bl->bucket->slots, i))
+        printf("%u ", base + i);
+    }
+  }
+  printf("0\n");
+}
+
+
 static inline uint
 next_uint()
 {
@@ -241,16 +254,14 @@ main()
       }
       break;
     case 'p': /* print */
-      {
-        uint set_n = next_uint();
-        for(BucketList *bl = g_sets[set_n]; bl; bl = bl->next) {
-          uint base = bl->number * GROUP_SIZE;
-          for(uint i = 0; i < GROUP_SIZE; ++i) {
-            if(BITTEST(bl->bucket->slots, i))
-              printf("%u ", base + i);
-          }
+      print_set( next_uint() );
+      break;
+    case 'd': /* dump */
+      for(uint i = 0; i < MAX_SETS; ++i) {
+        if(g_sets[i] != NULL) {
+          printf("+ %u ", i);
+          print_set(i);
         }
-        printf("\n");
       }
       break;
     default:
