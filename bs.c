@@ -268,6 +268,7 @@ main()
       printf("Unrecognized command: %c\n", cmd);
       break;
     }
+    fflush(stdout);
   }
 
   return 0;
