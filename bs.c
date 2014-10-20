@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <string.h>
+#include <unistd.h>
+#include <signal.h>
 
 // adapted from comp.lang.c FAQ Q 20.8
 #define BITMASK(b) (1 << ((b) % WORD_BIT))
@@ -13,7 +15,12 @@
 #define BITNSLOTS(nb) ((nb + WORD_BIT - 1) / WORD_BIT)
 
 #define MAX_BIT (1<<24)
-#define GROUP_SIZE (1<<12)
+// (1<<9)  - 1144972  16400ms
+// (1<<10) - 1396740
+// (1<<11) - 1847500  15000ms
+// (1<<12) - 2592972
+// (1<<14) - 4239380 (segfault)
+#define GROUP_SIZE (1<<11)
 #define MAX_SETS (1<<22)
 
 typedef unsigned int uint;
@@ -87,41 +94,48 @@ free_bucket_list(BucketList *bl)
 }
 
 static void
-print_set(uint set_n) {
+print_set(FILE *fp, uint set_n) {
   for(BucketList *bl = g_sets[set_n]; bl; bl = bl->next) {
     uint base = bl->number * GROUP_SIZE;
     for(uint i = 0; i < GROUP_SIZE; ++i) {
       if(BITTEST(bl->bucket->slots, i))
-        printf("%u ", base + i);
+        fprintf(fp, "%u ", base + i);
     }
   }
-  printf("0\n");
+  fprintf(fp, "0\n");
 }
 
+static void
+dump(FILE *fp) {
+  for(uint i = 0; i < MAX_SETS; ++i) {
+    if(g_sets[i] != NULL) {
+      fprintf(fp, "+ %u ", i);
+      print_set(fp, i);
+    }
+  }
+}
 
 static inline uint
-next_uint()
+next_uint(FILE *fp)
 {
   uint n = 0;
-  scanf("%u", &n);
+  fscanf(fp, "%u", &n);
   return n;
 }
 
-int
-main()
+static void
+main_loop(FILE *fp)
 {
-  g_sets = calloc(MAX_SETS, sizeof(BucketList*));
-
   while(true) {
     char cmd;
-    scanf(" "); // eat whitespace
-    if(scanf("%c", &cmd) == EOF) break;
+    fscanf(fp, " "); // eat whitespace
+    if(fscanf(fp, "%c", &cmd) == EOF) break;
     switch(cmd) {
     case '+': /* add to set */
       {
-        uint set_n = next_uint();
+        uint set_n = next_uint(fp);
         BucketList *bl = NULL;
-        for (uint i = next_uint(); i != 0; i = next_uint()) {
+        for (uint i = next_uint(fp); i != 0; i = next_uint(fp)) {
           if(i > MAX_BIT) {
             printf("%u is too high, ignored\n", i);
             continue;
@@ -136,8 +150,8 @@ main()
       break;
     case '-': /* remove from set */
       {
-        uint set_n = next_uint();
-        for (uint i = next_uint(); i != 0; i = next_uint()) {
+        uint set_n = next_uint(fp);
+        for (uint i = next_uint(fp); i != 0; i = next_uint(fp)) {
           if(i > MAX_BIT) {
             printf("%u is too high, ignored\n", i);
             continue;
@@ -152,8 +166,8 @@ main()
       break;
     case '&': /* intersection */
       {
-        uint to_set_n = next_uint();
-        for (uint set_n = next_uint(); set_n != 0; set_n = next_uint()) {
+        uint to_set_n = next_uint(fp);
+        for (uint set_n = next_uint(fp); set_n != 0; set_n = next_uint(fp)) {
           BucketList *to_bl = g_sets[to_set_n];
           BucketList *to_prev = NULL;
           BucketList *other_bl = g_sets[set_n];
@@ -196,8 +210,8 @@ main()
       break;
     case '|': /* union */
       {
-        uint to_set_n = next_uint();
-        for (uint set_n = next_uint(); set_n != 0; set_n = next_uint()) {
+        uint to_set_n = next_uint(fp);
+        for (uint set_n = next_uint(fp); set_n != 0; set_n = next_uint(fp)) {
           BucketList *to_bl = g_sets[to_set_n];
           BucketList *to_prev = NULL;
           BucketList *other_bl = g_sets[set_n];
@@ -240,8 +254,8 @@ main()
       break;
     case '=': /* clone */
       {
-        uint to_set_n = next_uint();
-        uint from_set_n = next_uint();
+        uint to_set_n = next_uint(fp);
+        uint from_set_n = next_uint(fp);
         BucketList *prev = NULL;
         if(g_sets[to_set_n] != NULL) free_bucket_list(g_sets[to_set_n]);
         for(BucketList *bl = g_sets[from_set_n], *new_bl; bl != NULL; prev = new_bl, bl = bl->next) {
@@ -254,21 +268,55 @@ main()
       }
       break;
     case 'p': /* print */
-      print_set( next_uint() );
+      print_set(stdout, next_uint(fp) );
       break;
     case 'd': /* dump */
-      for(uint i = 0; i < MAX_SETS; ++i) {
-        if(g_sets[i] != NULL) {
-          printf("+ %u ", i);
-          print_set(i);
-        }
-      }
+      dump(stdout);
+      break;
+    case '0': /* nop */
       break;
     default:
       printf("Unrecognized command: %c\n", cmd);
       break;
     }
     fflush(stdout);
+  }
+}
+
+static void
+interrupt(int sig)
+{
+  fclose(stdin);
+  signal(sig, SIG_IGN);
+}
+
+int
+main(int argc, char *argv[])
+{
+  g_sets = calloc(MAX_SETS, sizeof(BucketList*));
+
+  if(argc > 1) {
+    FILE *fp = fopen(argv[1], "r");
+    if(fp != NULL) {
+      main_loop(fp);
+      fclose(fp);
+    } else {
+      fprintf(stderr, "Cannot read %s\n", argv[1]);
+    }
+  }
+
+  signal(SIGINT, interrupt);
+
+  main_loop(stdin);
+
+  if(argc > 2) {
+    FILE *fp = fopen(argv[2], "w");
+    if(fp != NULL) {
+      dump(fp);
+      fclose(fp);
+    } else {
+      fprintf(stderr, "Cannot write %s\n", argv[1]);
+    }
   }
 
   return 0;
