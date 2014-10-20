@@ -41,11 +41,13 @@ new_bucket_list(uint bucket_n, bool new_bucket) {
 }
 
 static BucketList *
-find_bucket(uint set_n, uint bucket_n, bool create)
+find_bucket(uint set_n, uint bucket_n, BucketList *bl, bool create)
 {
-  BucketList *prev = NULL, *bl = NULL;
+  BucketList *prev = NULL;
+  if(bl == NULL || bl->number > bucket_n)
+    bl = g_sets[set_n];
 
-  for(bl = g_sets[set_n]; bl != NULL; prev = bl, bl = bl->next) {
+  for(; bl != NULL; prev = bl, bl = bl->next) {
     if(bl->number == bucket_n) return bl;
     if(bl->number > bucket_n) break;
   }
@@ -105,12 +107,15 @@ main()
     case '+': /* add to set */
       {
         uint set_n = next_uint();
+        BucketList *bl = NULL;
         for (uint i = next_uint(); i != 0; i = next_uint()) {
           if(i > MAX_BIT) {
             printf("%u is too high, ignored\n", i);
             continue;
           }
-          BucketList *bl = find_bucket(set_n, i / GROUP_SIZE, true);
+          uint bucket_n = i / GROUP_SIZE;
+          if(bl == NULL || bl->number != bucket_n)
+            bl = find_bucket(set_n, i / GROUP_SIZE, bl, true);
           prepare_to_change(bl);
           BITSET(bl->bucket->slots, i % GROUP_SIZE);
         }
@@ -124,7 +129,7 @@ main()
             printf("%u is too high, ignored\n", i);
             continue;
           }
-          BucketList *bl = find_bucket(set_n, i / GROUP_SIZE, false);
+          BucketList *bl = find_bucket(set_n, i / GROUP_SIZE, NULL, false);
           if(bl) {
             prepare_to_change(bl);
             BITCLEAR(bl->bucket->slots, i % GROUP_SIZE);
