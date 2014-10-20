@@ -85,28 +85,27 @@ free_bucket_list(BucketList *bl)
 }
 
 static inline uint
-next_uint(char **tok_state)
+next_uint()
 {
-  char *tok = strtok_r(NULL, " ", tok_state);
-  if(tok==NULL) return 0;
-  return (unsigned int)strtoul(tok, NULL, 10);
+  uint n = 0;
+  scanf("%u", &n);
+  return n;
 }
 
 int
 main()
 {
-  char line[LINE_MAX];
-
   g_sets = calloc(MAX_SETS, sizeof(BucketList*));
 
-  while(fgets(line, LINE_MAX, stdin) != NULL) {
-    char *tok_state;
-    char *tok = strtok_r(line, " ", &tok_state);
-    switch(*tok) {
+  while(true) {
+    char cmd;
+    scanf(" "); // eat whitespace
+    if(scanf("%c", &cmd) == EOF) break;
+    switch(cmd) {
     case '+': /* add to set */
       {
-        uint set_n = next_uint(&tok_state);
-        for (uint i = next_uint(&tok_state); i != 0; i = next_uint(&tok_state)) {
+        uint set_n = next_uint();
+        for (uint i = next_uint(); i != 0; i = next_uint()) {
           if(i > MAX_BIT) {
             printf("%u is too high, ignored\n", i);
             continue;
@@ -119,8 +118,8 @@ main()
       break;
     case '-': /* remove from set */
       {
-        uint set_n = next_uint(&tok_state);
-        for (uint i = next_uint(&tok_state); i != 0; i = next_uint(&tok_state)) {
+        uint set_n = next_uint();
+        for (uint i = next_uint(); i != 0; i = next_uint()) {
           if(i > MAX_BIT) {
             printf("%u is too high, ignored\n", i);
             continue;
@@ -135,8 +134,8 @@ main()
       break;
     case '&': /* intersection */
       {
-        uint to_set_n = next_uint(&tok_state);
-        for (uint set_n = next_uint(&tok_state); set_n != 0; set_n = next_uint(&tok_state)) {
+        uint to_set_n = next_uint();
+        for (uint set_n = next_uint(); set_n != 0; set_n = next_uint()) {
           BucketList *to_bl = g_sets[to_set_n];
           BucketList *to_prev = NULL;
           BucketList *other_bl = g_sets[set_n];
@@ -179,8 +178,8 @@ main()
       break;
     case '|': /* union */
       {
-        uint to_set_n = next_uint(&tok_state);
-        for (uint set_n = next_uint(&tok_state); set_n != 0; set_n = next_uint(&tok_state)) {
+        uint to_set_n = next_uint();
+        for (uint set_n = next_uint(); set_n != 0; set_n = next_uint()) {
           BucketList *to_bl = g_sets[to_set_n];
           BucketList *to_prev = NULL;
           BucketList *other_bl = g_sets[set_n];
@@ -223,8 +222,8 @@ main()
       break;
     case '=': /* clone */
       {
-        uint to_set_n = next_uint(&tok_state);
-        uint from_set_n = next_uint(&tok_state);
+        uint to_set_n = next_uint();
+        uint from_set_n = next_uint();
         BucketList *prev = NULL;
         if(g_sets[to_set_n] != NULL) free_bucket_list(g_sets[to_set_n]);
         for(BucketList *bl = g_sets[from_set_n], *new_bl; bl != NULL; prev = new_bl, bl = bl->next) {
@@ -238,7 +237,7 @@ main()
       break;
     case 'p': /* print */
       {
-        uint set_n = next_uint(&tok_state);
+        uint set_n = next_uint();
         for(BucketList *bl = g_sets[set_n]; bl; bl = bl->next) {
           uint base = bl->number * GROUP_SIZE;
           for(uint i = 0; i < GROUP_SIZE; ++i) {
@@ -250,7 +249,7 @@ main()
       }
       break;
     default:
-      printf("Unrecognized command: %c\n", *tok);
+      printf("Unrecognized command: %c\n", cmd);
       break;
     }
   }
