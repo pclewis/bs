@@ -123,6 +123,42 @@ next_uint(FILE *fp)
   return n;
 }
 
+static int
+bucket_test(FILE *fp)
+{
+  uint to_set_n = next_uint(fp);
+  for (uint set_n = next_uint(fp); set_n != 0; set_n = next_uint(fp)) {
+    BucketList *to_bl = g_sets[to_set_n];
+    BucketList *other_bl = g_sets[set_n];
+    while(to_bl) {
+      if(other_bl == NULL) { /* no buckets left on other side */
+        break;
+      }
+
+      if(other_bl->number > to_bl->number) { /* other side ahead of us */
+        to_bl = to_bl->next;
+        continue;
+      }
+
+      if(to_bl->number > other_bl->number) { /* other side behind us */
+        other_bl = other_bl->next;
+        continue;
+      }
+
+      /* to_bl->number == other_bl->number */
+      if(to_bl->bucket != other_bl->bucket) {
+        for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
+          if(to_bl->bucket->slots[i] & other_bl->bucket->slots[i])
+            return 1;
+        }
+      }
+      to_bl = to_bl->next;
+      other_bl = other_bl->next;
+    }
+  }
+  return 0;
+}
+
 static void
 main_loop(FILE *fp)
 {
@@ -162,6 +198,12 @@ main_loop(FILE *fp)
             BITCLEAR(bl->bucket->slots, i % GROUP_SIZE);
           }
         }
+      }
+      break;
+    case '?': /* test - 1 if any intersections */
+      {
+        int r = bucket_test(fp);
+        printf("%d\n", r);
       }
       break;
     case '&': /* intersection */
