@@ -124,39 +124,66 @@ next_uint(FILE *fp)
 }
 
 static int
-bucket_test(FILE *fp)
+bucket_test(uint to_set_n, uint set_n)
+{
+  BucketList *to_bl = g_sets[to_set_n];
+  BucketList *other_bl = g_sets[set_n];
+  while(to_bl) {
+    if(other_bl == NULL) { /* no buckets left on other side */
+      break;
+    }
+
+    if(other_bl->number > to_bl->number) { /* other side ahead of us */
+      to_bl = to_bl->next;
+      continue;
+    }
+
+    if(to_bl->number > other_bl->number) { /* other side behind us */
+      other_bl = other_bl->next;
+      continue;
+    }
+
+    /* to_bl->number == other_bl->number */
+    if(to_bl->bucket != other_bl->bucket) {
+      for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
+        if(to_bl->bucket->slots[i] & other_bl->bucket->slots[i])
+          return 1;
+      }
+    }
+    to_bl = to_bl->next;
+    other_bl = other_bl->next;
+  }
+  return 0;
+}
+
+static int
+bucket_test_cmd(FILE *fp)
 {
   uint to_set_n = next_uint(fp);
   for (uint set_n = next_uint(fp); set_n != 0; set_n = next_uint(fp)) {
-    BucketList *to_bl = g_sets[to_set_n];
-    BucketList *other_bl = g_sets[set_n];
-    while(to_bl) {
-      if(other_bl == NULL) { /* no buckets left on other side */
-        break;
-      }
-
-      if(other_bl->number > to_bl->number) { /* other side ahead of us */
-        to_bl = to_bl->next;
-        continue;
-      }
-
-      if(to_bl->number > other_bl->number) { /* other side behind us */
-        other_bl = other_bl->next;
-        continue;
-      }
-
-      /* to_bl->number == other_bl->number */
-      if(to_bl->bucket != other_bl->bucket) {
-        for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
-          if(to_bl->bucket->slots[i] & other_bl->bucket->slots[i])
-            return 1;
-        }
-      }
-      to_bl = to_bl->next;
-      other_bl = other_bl->next;
-    }
+    if(bucket_test(to_set_n,set_n))
+      return 1;
   }
   return 0;
+}
+
+static void
+bucket_magic(FILE *fp)
+{
+  uint to_set_n = next_uint(fp);
+  for (uint set_n = next_uint(fp); set_n != 0; set_n = next_uint(fp)) {
+    for(BucketList *bl = g_sets[to_set_n]; bl; bl = bl->next) {
+      uint base = bl->number * GROUP_SIZE;
+      for(uint i = 0; i < GROUP_SIZE; ++i) {
+        if(BITTEST(bl->bucket->slots, i)) {
+          if(!bucket_test(base+i, set_n)) {
+            prepare_to_change(bl);
+            BITCLEAR(bl->bucket->slots, i);
+          }
+        }
+      }
+    }
+  }
 }
 
 static void
@@ -202,9 +229,12 @@ main_loop(FILE *fp)
       break;
     case '?': /* test - 1 if any intersections */
       {
-        int r = bucket_test(fp);
+        int r = bucket_test_cmd(fp);
         printf("%d\n", r);
       }
+      break;
+    case '!': /* magic - set dst to any sets that intersect with ALL args */
+      bucket_magic(fp);
       break;
     case '&': /* intersection */
       {
