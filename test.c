@@ -2,6 +2,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 #include "bs.h"
 
 void
@@ -23,6 +24,11 @@ test_bs_add()
   assert( bs.sets[1]->next->block != NULL );
   assert( bs.sets[1]->next->index == (80000 / 1024) );
   assert( bs.sets[1]->next->next == NULL );
+
+  size_t n_vs;
+  uint *uints = bs_to_uints( &bs, 1, &n_vs );
+  assert( n_vs == 4 );
+  assert( memcmp(ns, uints, sizeof(ns)) == 0 );
 }
 
 int

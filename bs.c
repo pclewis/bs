@@ -52,11 +52,39 @@ interrupt(int sig)
 static void *
 safe_alloc(size_t nmemb, size_t size, bool zero)
 {
+  assert(size > 0);
+
+  if(nmemb == 0)
+    return NULL;
+
   void *ptr = zero ? malloc(nmemb * size) : calloc(nmemb, size);
+
   if(ptr == NULL) {
     (void)fprintf(stderr, "PANIC: alloc failed for %u bytes\n", (uint)(nmemb * size));
     abort();
   }
+
+  return ptr;
+}
+
+static void *
+safe_realloc(void *ptr, size_t nmemb, size_t size)
+{
+  assert(size > 0);
+
+  if(nmemb == 0) {
+    free(ptr);
+    return NULL;
+  }
+
+  size_t bytes = nmemb * size;
+  ptr = realloc(ptr, bytes);
+
+  if(ptr == NULL) {
+    (void)fprintf(stderr, "PANIC: realloc failed for %u bytes\n", (uint)bytes);
+    abort();
+  }
+
   return ptr;
 }
 
@@ -201,6 +229,37 @@ void
 bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
 {
   bs_set(bs, set_id, false, n_vs, vs);
+}
+
+/**
+ * Return a bitset as an array of uints.
+ * Caller must free result, even if n_vs == 0.
+ */
+uint *
+bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
+{
+  size_t alloced_vs = 64;
+  uint *vs = safe_alloc(alloced_vs, sizeof(uint), false);
+  *n_vs = 0;
+
+  for(BS_Node *node = bs->sets[set_id]; node; node = node->next) {
+    for(uint i = 0; i < GROUP_SIZE; ++i) {
+      if(BITTEST(node->block->slots, i)) {
+        if(*n_vs >= alloced_vs) {
+          alloced_vs *= 2;
+          vs = safe_realloc(vs, alloced_vs, sizeof(uint));
+        }
+        vs[*n_vs] = (node->index * GROUP_SIZE) + (i + 1);
+        *n_vs += 1;
+      }
+    }
+  }
+
+  if(*n_vs < alloced_vs) {
+    vs = safe_realloc(vs, *n_vs, sizeof(uint));
+  }
+
+  return vs;
 }
 
 void
