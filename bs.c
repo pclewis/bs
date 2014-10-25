@@ -265,16 +265,19 @@ bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
 void
 bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
 {
+  assert( set_id <= bs->max_set_id );
+
   BS_Node *node = bs->sets[set_id],
     *prev = NULL,
     **other_nodes = safe_alloc(n_vs, sizeof(BS_Node*), false);
 
   for(uint n = 0; n < n_vs; ++n) {
+    assert( vs[n] <= bs->max_set_id );
     other_nodes[n] = bs->sets[vs[n]];
   }
 
   while(node != NULL) {
-    bool found_current_block = false;
+    bool advance = true;
     for(uint n = 0; n < n_vs; ++n) {
       while(other_nodes[n] && other_nodes[n]->index < node->index) {
         other_nodes[n] = other_nodes[n]->next;
@@ -282,11 +285,17 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
 
       if(other_nodes[n] == NULL) {
         destroy_node( node, prev, &bs->sets[set_id], true );
+        advance = false;
         break;
       }
 
-      if(other_nodes[n]->index == node->index) {
-        found_current_block = true;
+      while(node && other_nodes[n]->index > node->index) {
+        node = destroy_node(node, prev, &bs->sets[set_id], false );
+        advance = false;
+        break;
+      }
+
+      if(node && other_nodes[n]->index == node->index) {
         prepare_to_change(node);
         for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
           node->block->slots[i] &= other_nodes[n]->block->slots[i];
@@ -294,11 +303,9 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
       }
     }
 
-    if(found_current_block) {
+    if(advance) {
       prev = node;
       node = node->next;
-    } else {
-      node = destroy_node(node, prev, &bs->sets[set_id], false );
     }
   }
 
