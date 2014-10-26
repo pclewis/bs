@@ -356,3 +356,18 @@ bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
 
   free(other_nodes);
 }
+
+void
+bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id)
+{
+  assert( set_id <= bs->max_set_id );
+
+  BS_Node *node = bs->sets[set_id], *prev = NULL;
+
+  if(node) destroy_node(node, NULL, &bs->sets[set_id], true);
+
+  for(node = bs->sets[src_set_id]; node; node = node->next) {
+    BS_Node *n = new_node( node->index, node->block, NULL, prev, &bs->sets[set_id] );
+    prev = n;
+  }
+}
