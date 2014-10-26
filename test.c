@@ -73,12 +73,54 @@ test_bs_intersection()
   free(uints);
 }
 
+void
+test_bs_union()
+{
+  BS_State bs;
+  BS_Node *sets[5] = {0};
+  bs.sets = sets;
+  bs.max_set_id = 4;
+
+  uint ns1[25] = {65,343,1084,2752,4133,10293,10439,11143,11938,12223,12837,
+                  13020,13111,15325,15388,15427,16791,18050,19083,19213,21752,
+                  25447,26898,42000,90210};
+  uint ns2[25] = {167,1372,5467,6061,8073,12413,15138,16140,19720,20580,21264,
+                  22654,24339,25377,26035,26447,26476,26582,26944,28540,29817,
+                  29987,30970,42000,90212};
+  uint ns3[2] = {1,99999};
+
+  bs_add( &bs, 1, 25, ns1 );
+  bs_add( &bs, 2, 25, ns2 );
+  bs_add( &bs, 3, 2,  ns3 );
+
+  uint ni[2] = {2, 3};
+  bs_union( &bs, 1, 2, ni);
+
+  size_t n_vs;
+  uint *uints;
+  uints = bs_to_uints( &bs, 1, &n_vs );
+  assert( n_vs == 51 );
+  for(uint i = 0, *n1=ns1, *n2=ns2, *n3=ns3; i < n_vs; ++i) {
+    if( uints[i] == 42000 ) {
+      ++n1, ++n2;
+    } else if( uints[i] == *n1 ) {
+      ++n1;
+    } else if ( uints[i] == *n2 ) {
+      ++n2;
+    } else {
+      assert( uints[i] == *n3 );
+      ++n3;
+    }
+  }
+  free(uints);
+}
 
 int
 main()
 {
   test_bs_add();
   test_bs_intersection();
+  test_bs_union();
   printf("All tests completed successfully.\n");
   return 0;
 }

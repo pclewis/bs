@@ -57,7 +57,7 @@ safe_alloc(size_t nmemb, size_t size, bool zero)
   if(nmemb == 0)
     return NULL;
 
-  void *ptr = zero ? malloc(nmemb * size) : calloc(nmemb, size);
+  void *ptr = zero ? calloc(nmemb, size) :malloc(nmemb * size);
 
   if(ptr == NULL) {
     (void)fprintf(stderr, "PANIC: alloc failed for %u bytes\n", (uint)(nmemb * size));
@@ -308,6 +308,51 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
       node = node->next;
     }
   }
+
+  free(other_nodes);
+}
+
+void
+bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
+{
+  assert( set_id <= bs->max_set_id );
+
+  BS_Node *node = bs->sets[set_id],
+    *prev = NULL,
+    **other_nodes = safe_alloc(n_vs, sizeof(BS_Node*), false);
+
+  for(uint n = 0; n < n_vs; ++n) {
+    assert( vs[n] <= bs->max_set_id );
+    other_nodes[n] = bs->sets[vs[n]];
+  }
+
+  uint remaining = 0;
+  do {
+    remaining = n_vs;
+    for(uint n = 0; n < n_vs; ++n) {
+      if(other_nodes[n] == NULL) {
+        remaining -= 1;
+        continue;
+      }
+
+      if(node == NULL || other_nodes[n]->index < node->index) {
+        node = new_node( other_nodes[n]->index, other_nodes[n]->block, node, prev, &bs->sets[set_id] );
+      } else if(other_nodes[n]->index == node->index) {
+        prepare_to_change(node);
+        for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
+          node->block->slots[i] |= other_nodes[n]->block->slots[i];
+        }
+      } else if(other_nodes[n]->index > node->index) {
+        continue;
+      }
+      other_nodes[n] = other_nodes[n]->next;
+    }
+
+    if(node) {
+        prev = node;
+        node = node->next;
+    }
+  } while (remaining > 0);
 
   free(other_nodes);
 }

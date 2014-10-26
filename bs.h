@@ -51,3 +51,4 @@ void bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
 void bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
 uint *bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs);
 void bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
+void bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
