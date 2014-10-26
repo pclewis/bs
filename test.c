@@ -184,9 +184,39 @@ time_bs_intersection()
   }
 
   clock_gettime(CLOCK_REALTIME, &stop);
-  printf("bs_intersection [1024*1024]: ");
+  printf("bs_intersection [1024*1024 -> 0]: ");
   print_time_diff(&start, &stop);
   printf("\n");
+
+  clock_gettime(CLOCK_REALTIME, &start);
+  size_t n_s1 = 0;
+  uint *v_s1 = bs_to_uints(bs, 1, &n_s1);
+  for(BS_SetID i = 2; i < 1024; ++i) {
+    bs_add(bs, i, n_s1, v_s1);
+  }
+  clock_gettime(CLOCK_REALTIME, &stop);
+  printf("bs_add [%zu*1024]: ", n_s1);
+  print_time_diff(&start, &stop);
+  printf("\n");
+
+  clock_gettime(CLOCK_REALTIME, &start);
+  for(BS_SetID i = 1; i < 1024; ++i) {
+    bs_copy(bs, 0, i);
+    bs_intersection(bs, 0, 1024, vs);
+  }
+
+  clock_gettime(CLOCK_REALTIME, &stop);
+  printf("bs_intersection [1024*1024 -> %zu]: ", n_s1);
+  print_time_diff(&start, &stop);
+  printf("\n");
+
+  size_t n_s0 = 0;
+  uint *v_s0 = bs_to_uints(bs, 0, &n_s0);
+  assert(n_s0 == n_s1);
+  assert( memcmp(v_s0, v_s1, n_s0 * sizeof(uint)) == 0 );
+  free(v_s1); v_s1 = NULL;
+  free(v_s0); v_s0 = NULL;
+
 
   bs_destroy(bs);
 }

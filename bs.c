@@ -56,6 +56,7 @@ interrupt(int sig)
 
 */
 
+// adapted from http://danluu.com/assembly-intrinsics/
 static uint
 builtin_popcnt_unrolled_errata_manual(const uint* buf, size_t len)
 {
