@@ -30,16 +30,10 @@ typedef struct {
   size_t pop_count;
 } BS_Block;
 
-typedef struct _BS_Node {
-  uint index;
-  BS_Block *block;
-  struct _BS_Node *next;
-} BS_Node;
-
 typedef struct {
-  uint n_nodes;
-  BS_Node *first;
-  uint *node_map;
+  uint n_blocks;
+  void *blocks;
+  uint *block_map;
 } BS_Set;
 
 typedef struct {

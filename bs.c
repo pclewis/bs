@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <assert.h>
+#include <Judy.h>
 #include "bs.h"
 
 
@@ -131,56 +132,34 @@ sort_uints(size_t n, const uint *vs)
   return vs_copy;
 }
 
-static BS_Node *
-new_node(uint index, BS_Block *block, BS_Node *next, BS_Node *prev, BS_Set *set)
+static BS_Block *
+new_block(BS_Set *set, uint index)
 {
-  BS_Node *node = safe_alloc(1, sizeof(BS_Node), true);
-  node->index = index;
-
-  if(block) {
-    node->block = block;
-    node->block->ref_count += 1;
-  } else {
-    node->block = safe_alloc(1, sizeof(BS_Block), true);
-  }
-
-  if(prev) prev->next = node;
-  else set->first = node;
-
-  node->next = next;
-
-  set->n_nodes += 1;
-  BITSET(set->node_map, index);
-
-  return node;
+  BS_Block *block = safe_alloc(1, sizeof(BS_Block), true);
+  BS_Block **v = NULL;
+  JLI(v, set->blocks, index);
+  *v = block;
+  set->n_blocks += 1;
+  BITSET(set->block_map, index);
+  return block;
 }
 
-static BS_Node *
-destroy_node(BS_Node *node, BS_Node *prev, BS_Set *set, bool to_end)
+static void
+destroy_block(BS_Set *set, uint index)
 {
-  BS_Node *next = NULL;
-
-  do {
-    if(node->block->ref_count > 0) {
-      node->block->ref_count -= 1;
+  BS_Block **v = NULL;
+  JLG(v, set->blocks, index);
+  if(v != NULL && (*v) != NULL) {
+    if( (*v)->ref_count == 0) {
+      free(*v);
     } else {
-      free(node->block);
-      node->block = NULL;
+      (*v)->ref_count -= 1;
     }
-
-    set->n_nodes -= 1;
-    BITCLEAR(set->node_map, node->index);
-
-    next = node->next;
-    node->next = NULL;
-    free(node);
-    node = next;
-  } while (node && to_end);
-
-  if(prev) prev->next = next;
-  else set->first = next;
-
-  return next;
+  }
+  int rc = 0;
+  JLD(rc, set->blocks, index);
+  set->n_blocks -= 1;
+  BITCLEAR(set->block_map, index);
 }
 
 BS_State *
@@ -191,7 +170,7 @@ bs_new(uint n_sets, uint n_bits)
   bs->max_set_id = n_sets - 1;
   bs->max_bit_id = n_bits - 1;
   for(BS_SetID i = 0; i <= bs->max_set_id; ++i) {
-    bs->sets[i].node_map = safe_alloc( BITNSLOTS(n_bits / GROUP_SIZE), sizeof(uint), true );
+    bs->sets[i].block_map = safe_alloc( BITNSLOTS(n_bits / GROUP_SIZE), sizeof(uint), true );
   }
   return bs;
 }
@@ -201,58 +180,45 @@ bs_destroy(BS_State *bs)
 {
   bs_reset(bs);
   for(BS_SetID i = 0; i <= bs->max_set_id; ++i) {
-    free(bs->sets[i].node_map);
+    free(bs->sets[i].block_map);
   }
   free(bs->sets);
   free(bs);
 }
 
-static void
-prepare_to_change(BS_Node *node)
+static BS_Block *
+mutable_block(BS_Set *set, uint index)
 {
-  if(node->block->ref_count > 0) {
-    BS_Block *block = safe_alloc(1, sizeof(BS_Block), false);
-    memcpy(block, node->block, sizeof(BS_Block));
-    node->block->ref_count -= 1;
-    block->ref_count = 0;
-    node->block = block;
+  BS_Block **v = NULL;
+  JLG(v, set->blocks, index);
+  if(v) {
+    if((*v)->ref_count > 0) {
+      (*v)->ref_count -= 1;
+      BS_Block *nb = safe_alloc(1, sizeof(BS_Block), false);
+      memcpy(nb, *v, sizeof(BS_Block));
+      nb->ref_count = 0;
+      *v = nb;
+    }
+    return *v;
+  } else {
+    return new_block(set, index);
   }
 }
 
 /**
  * Find node with specified number, optionally creating it in the correct place if it doesn't exist.
  * @param set
- * @param start    Node to start searching from, to avoid starting over when looping over sorted sets.
  * @param index    Index to search for.
  * @param create   Create node if it doesn't exist.
  */
-static BS_Node *
-find_node(BS_Set *set, BS_Node *start, uint index, bool create)
+static BS_Block *
+find_block(BS_Set *set, uint index, bool create)
 {
-  BS_Node *prev = NULL,
-    *node = NULL;
-
-  if( start == NULL || start->index > index ) {
-    if(start)fprintf(stderr, "find_node: jumped to head [%u>%u]\n", start->index, index);
-    node = set->first;
-  } else {
-    prev = start;
-    node = start->next;
-  }
-
-  for(; node != NULL && node->index < index; prev = node, node = node->next) {
-    /* do nothing */
-  }
-
-  if(node == NULL || node->index > index) {
-    if(create) {
-      node = new_node(index, NULL, node, prev, set);
-    } else {
-      node = NULL;
-    }
-  }
-
-  return node;
+  BS_Block **v = NULL;
+  JLG(v, set->blocks, index);
+  if(v) return *v;
+  else if(create) return new_block(set, index);
+  else return NULL;
 }
 
 void
@@ -260,25 +226,15 @@ bs_set(BS_State *bs, BS_SetID set_id, bool value, size_t n_vs, const BS_BitID *v
 {
   assert( set_id <= bs->max_set_id );
 
-  BS_BitID *sorted_vs = sort_uints(n_vs, vs);
-  BS_Node *node = NULL;
+  BS_Set *set = &bs->sets[set_id];
 
   for(uint n = 0; n < n_vs; ++n) {
-    BS_BitID i = sorted_vs[n], index = i / GROUP_SIZE;
+    BS_BitID i = vs[n], index = i / GROUP_SIZE;
 
-    if(node == NULL || node->index != index) {
-      if(node != NULL)
-        update_pop_count(node->block);
-      node = find_node( &bs->sets[set_id], node, index, true );
-      prepare_to_change(node);
-    }
-
-    BITSETV(node->block->slots, (i-1) % GROUP_SIZE, value);
+    BS_Block *block = mutable_block(set, index);
+    BITSETV(block->slots, (i-1) % GROUP_SIZE, value);
+    update_pop_count(block);
   }
-  if(node != NULL)
-    update_pop_count(node->block);
-
-  free(sorted_vs);
 }
 
 /**
@@ -310,17 +266,24 @@ bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
   uint *vs = safe_alloc(alloced_vs, sizeof(uint), false);
   *n_vs = 0;
 
-  for(BS_Node *node = bs->sets[set_id].first; node; node = node->next) {
+  BS_Set *set = &bs->sets[set_id];
+  BS_Block **pblock = NULL, *block = NULL;
+  Word_t index = 0;
+
+  JLF(pblock, set->blocks, index);
+  while(pblock) {
+    block = *pblock;
     for(uint i = 0; i < GROUP_SIZE; ++i) {
-      if(BITTEST(node->block->slots, i)) {
+      if(BITTEST(block->slots, i)) {
         if(*n_vs >= alloced_vs) {
           alloced_vs *= 2;
           vs = safe_realloc(vs, alloced_vs, sizeof(uint));
         }
-        vs[*n_vs] = (node->index * GROUP_SIZE) + (i + 1);
+        vs[*n_vs] = (index * GROUP_SIZE) + (i + 1);
         *n_vs += 1;
       }
     }
+    JLN(pblock, set->blocks, index);
   }
 
   if(*n_vs < alloced_vs) {
@@ -336,11 +299,6 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
   assert( set_id <= bs->max_set_id );
 
   BS_Set *set = &bs->sets[set_id];
-
-  BS_Node *node = set->first,
-    *prev = NULL,
-    **other_nodes = safe_alloc(n_vs, sizeof(BS_Node*), false);
-
   BS_Set **sets = safe_alloc(n_vs, sizeof(BS_Set*), false);
 
   uint nn = 0;
@@ -349,118 +307,79 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
     if(vs[vn] != set_id)  {
       sets[nn] = &bs->sets[vs[vn]];
       for(uint i = 0; i < BITNSLOTS((bs->max_bit_id+1) / GROUP_SIZE); ++i) {
-        set->node_map[i] &= sets[nn]->node_map[i];
+        if(set->block_map[i] != sets[nn]->block_map[i]) {
+          for(uint j = 0; j < WORD_BIT; ++j) {
+            if( (set->block_map[i] & (1<<j)) && !(sets[nn]->block_map[i] & (1<<j)) ) {
+              destroy_block(set, (i * WORD_BIT) + j);
+            }
+          }
+        }
       }
       nn += 1;
     }
   }
 
-  for(uint n = 0; n < nn; ++n) {
-    other_nodes[n] = sets[n]->first;
-  }
-
-  while(node != NULL) {
-    bool advance = true;
-    while(node && !BITTEST(set->node_map, node->index)) {
-        node = destroy_node(node, prev, set, false );
-    }
-    if(!node) break;
-
-    for(uint n = 0; n < nn; ++n) {
-      while(other_nodes[n] && other_nodes[n]->index < node->index) {
-        other_nodes[n] = other_nodes[n]->next;
-      }
-
-      if(node && other_nodes[n]->index == node->index && node->block != other_nodes[n]->block) {
-        prepare_to_change(node);
+  for(uint i = 0; i <= ((bs->max_bit_id+1)/GROUP_SIZE); ++i) {
+    if(BITTEST(set->block_map, i)) {
+      for(uint n = 0; n < nn; ++n) {
+        BS_Block *block = find_block( set, i, false );
+        BS_Block *other_block = find_block( sets[n], i, false );
         for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
-          node->block->slots[i] &= other_nodes[n]->block->slots[i];
+          block->slots[i] &= other_block->slots[i];
         }
-        update_pop_count(node->block);
-        if(node->block->pop_count == 0) {
-          node = destroy_node(node, prev, set, false);
-          advance = false;
+        update_pop_count(block);
+        if(block->pop_count == 0) {
+          destroy_block(set, i);
           break;
         }
       }
     }
-
-    if(advance) {
-      prev = node;
-      node = node->next;
-    }
   }
 
-  free(other_nodes);
-}
-
-void
-bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
-{
-  assert( set_id <= bs->max_set_id );
-
-  BS_Node *node = bs->sets[set_id].first,
-    *prev = NULL,
-    **other_nodes = safe_alloc(n_vs, sizeof(BS_Node*), false);
-
-  for(uint n = 0; n < n_vs; ++n) {
-    assert( vs[n] <= bs->max_set_id );
-    other_nodes[n] = bs->sets[vs[n]].first;
-  }
-
-  uint remaining = 0;
-  do {
-    remaining = n_vs;
-    for(uint n = 0; n < n_vs; ++n) {
-      if(other_nodes[n] == NULL) {
-        remaining -= 1;
-        continue;
-      }
-
-      if(node == NULL || other_nodes[n]->index < node->index) {
-        node = new_node( other_nodes[n]->index, other_nodes[n]->block, node, prev, &bs->sets[set_id] );
-      } else if(other_nodes[n]->index == node->index) {
-        prepare_to_change(node);
-        for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
-          node->block->slots[i] |= other_nodes[n]->block->slots[i];
-        }
-        update_pop_count(node->block);
-      } else if(other_nodes[n]->index > node->index) {
-        continue;
-      }
-      other_nodes[n] = other_nodes[n]->next;
-    }
-
-    if(node) {
-        prev = node;
-        node = node->next;
-    }
-  } while (remaining > 0);
-
-  free(other_nodes);
+  free(sets);
 }
 
 void
 bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id)
 {
   assert( set_id <= bs->max_set_id );
+  assert( src_set_id <= bs->max_set_id );
 
   bs_clear(bs, set_id);
 
-  for(BS_Node *node = bs->sets[src_set_id].first, *prev=NULL; node; node = node->next) {
-    BS_Node *n = new_node( node->index, node->block, NULL, prev, &bs->sets[set_id] );
-    prev = n;
+  BS_Set *set = &bs->sets[set_id];
+  BS_Set *src = &bs->sets[src_set_id];
+  BS_Block **pblock = NULL, *block = NULL;
+  Word_t index = 0;
+
+  JLF(pblock, src->blocks, index);
+  while(pblock) {
+    block = *pblock;
+    BS_Block **nb = NULL;
+    JLI(nb, set->blocks, index);
+    *nb = block;
+    block->ref_count += 1;
+    JLN(pblock, src->blocks, index);
   }
+
+  set->n_blocks = src->n_blocks;
+  memcpy(set->block_map, src->block_map, BITNSLOTS((bs->max_bit_id+1) / GROUP_SIZE));
 }
 
 void
 bs_clear(BS_State *bs, BS_SetID set_id)
 {
   assert(set_id <= bs->max_set_id);
-  if(bs->sets[set_id].first)
-    bs->sets[set_id].first = destroy_node(bs->sets[set_id].first, NULL, &bs->sets[set_id], true);
-  assert(bs->sets[set_id].first == NULL);
-  assert(bs->sets[set_id].n_nodes == 0);
+  BS_Set *set = &bs->sets[set_id];
+  BS_Block **pblock = NULL;
+  Word_t index = 0;
+
+  JLF(pblock, set->blocks, index);
+  while(pblock) {
+    destroy_block(set, index);
+    JLN(pblock, set->blocks, index);
+  }
+  assert(set->n_blocks == 0);
 }
 
 void

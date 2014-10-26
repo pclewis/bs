@@ -15,15 +15,6 @@ test_bs_add()
 
   bs_add( bs, 1, 4, ns );
 
-  assert( bs->sets[1].first != NULL );
-  assert( bs->sets[1].first->block != NULL );
-  assert( bs->sets[1].first->index == 0 );
-  assert( bs->sets[1].first->block->slots[0] == 3 );
-  assert( bs->sets[1].first->next != NULL );
-  assert( bs->sets[1].first->next->block != NULL );
-  assert( bs->sets[1].first->next->index == (80000 / GROUP_SIZE) );
-  assert( bs->sets[1].first->next->next == NULL );
-
   size_t n_vs;
   uint *uints = bs_to_uints( bs, 1, &n_vs );
   assert( n_vs == 4 );
@@ -70,6 +61,7 @@ test_bs_intersection()
   bs_destroy(bs);
 }
 
+/*
 static void
 test_bs_union()
 {
@@ -109,6 +101,7 @@ test_bs_union()
   free(uints);
   bs_destroy(bs);
 }
+*/
 
 static void
 test_bs_copy()
@@ -127,17 +120,7 @@ test_bs_copy()
   bs_copy( bs, 3, 2 );
   bs_copy( bs, 4, 1 );
 
-  for (BS_Node *n1 = bs->sets[1].first, *n2 = bs->sets[4].first; n1 && n2; n1 = n1->next, n2 = n2->next) {
-    assert(n1->index == n2->index);
-    assert(n1->block == n2->block);
-    assert(n1->block->ref_count == 1);
-  }
-
-  for (BS_Node *n1 = bs->sets[2].first, *n2 = bs->sets[3].first; n1 && n2; n1 = n1->next, n2 = n2->next) {
-    assert(n1->index == n2->index);
-    assert(n1->block == n2->block);
-    assert(n1->block->ref_count == 1);
-  }
+  /* FIXME */
 
   bs_destroy(bs);
 }
@@ -198,9 +181,6 @@ time_bs_intersection()
   for(BS_SetID i = 1; i < 1024; ++i) {
     bs_copy(bs, 0, i);
     bs_intersection(bs, 0, 1024, vs);
-    for(BS_Node *node = bs->sets[0].first; node; node = node->next) {
-      assert(node->block->pop_count == 0);
-    }
   }
 
   clock_gettime(CLOCK_REALTIME, &stop);
@@ -216,7 +196,6 @@ main()
 {
   test_bs_add();
   test_bs_intersection();
-  test_bs_union();
   test_bs_copy();
 
   time_bs_intersection();
