@@ -371,3 +371,18 @@ bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id)
     prev = n;
   }
 }
+
+void
+bs_clear(BS_State *bs, BS_SetID set_id)
+{
+  assert(set_id <= bs->max_set_id);
+  if(bs->sets[set_id]) destroy_node(bs->sets[set_id], NULL, NULL, true);
+}
+
+void
+bs_reset(BS_State *bs)
+{
+  for(BS_SetID i = 0; i <= bs->max_set_id; ++i) {
+    bs_clear(bs, i);
+  }
+}

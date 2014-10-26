@@ -31,6 +31,7 @@ test_bs_add()
   assert( n_vs == 4 );
   assert( memcmp(ns, uints, sizeof(ns)) == 0 );
   free(uints);
+  bs_reset(&bs);
 }
 
 void
@@ -71,6 +72,7 @@ test_bs_intersection()
   assert( n_vs == 1 );
   assert( uints[0] == 42000 );
   free(uints);
+  bs_reset(&bs);
 }
 
 void
@@ -113,6 +115,7 @@ test_bs_union()
     }
   }
   free(uints);
+  bs_reset(&bs);
 }
 
 void
@@ -146,6 +149,8 @@ test_bs_copy()
     assert(n1->block == n2->block);
     assert(n1->block->ref_count == 1);
   }
+
+  bs_reset(&bs);
 }
 
 int

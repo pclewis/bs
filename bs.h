@@ -53,3 +53,5 @@ uint *bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs);
 void bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
 void bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
 void bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id);
+void bs_clear(BS_State *bs, BS_SetID set_id);
+void bs_reset(BS_State *bs);
