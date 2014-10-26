@@ -14,11 +14,6 @@
 #define SORT_CMP(x,y) ((int)((x) - (y)))
 #include "sort.h"
 
-#define SORT_NAME set
-#define SORT_TYPE BS_Set*
-#define SORT_CMP(x,y) ((int)((x)->n_nodes - (y)->n_nodes))
-#include "sort.h"
-
 /*
 static void
 interrupt(int sig)
@@ -155,6 +150,7 @@ new_node(uint index, BS_Block *block, BS_Node *next, BS_Node *prev, BS_Set *set)
   node->next = next;
 
   set->n_nodes += 1;
+  BITSET(set->node_map, index);
 
   return node;
 }
@@ -172,10 +168,12 @@ destroy_node(BS_Node *node, BS_Node *prev, BS_Set *set, bool to_end)
       node->block = NULL;
     }
 
+    set->n_nodes -= 1;
+    BITCLEAR(set->node_map, node->index);
+
     next = node->next;
     node->next = NULL;
     free(node);
-    set->n_nodes -= 1;
     node = next;
   } while (node && to_end);
 
@@ -192,6 +190,9 @@ bs_new(uint n_sets, uint n_bits)
   bs->sets = safe_alloc( n_sets, sizeof(BS_Set), true );
   bs->max_set_id = n_sets - 1;
   bs->max_bit_id = n_bits - 1;
+  for(BS_SetID i = 0; i <= bs->max_set_id; ++i) {
+    bs->sets[i].node_map = safe_alloc( BITNSLOTS(n_bits / GROUP_SIZE), sizeof(uint), true );
+  }
   return bs;
 }
 
@@ -199,6 +200,9 @@ void
 bs_destroy(BS_State *bs)
 {
   bs_reset(bs);
+  for(BS_SetID i = 0; i <= bs->max_set_id; ++i) {
+    free(bs->sets[i].node_map);
+  }
   free(bs->sets);
   free(bs);
 }
@@ -331,7 +335,9 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
 {
   assert( set_id <= bs->max_set_id );
 
-  BS_Node *node = bs->sets[set_id].first,
+  BS_Set *set = &bs->sets[set_id];
+
+  BS_Node *node = set->first,
     *prev = NULL,
     **other_nodes = safe_alloc(n_vs, sizeof(BS_Node*), false);
 
@@ -342,11 +348,12 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
     assert( vs[vn] <= bs->max_set_id );
     if(vs[vn] != set_id)  {
       sets[nn] = &bs->sets[vs[vn]];
+      for(uint i = 0; i < BITNSLOTS((bs->max_bit_id+1) / GROUP_SIZE); ++i) {
+        set->node_map[i] &= sets[nn]->node_map[i];
+      }
       nn += 1;
     }
   }
-
-  set_heap_sort(sets, nn);
 
   for(uint n = 0; n < nn; ++n) {
     other_nodes[n] = sets[n]->first;
@@ -354,24 +361,15 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
 
   while(node != NULL) {
     bool advance = true;
+    while(node && !BITTEST(set->node_map, node->index)) {
+        node = destroy_node(node, prev, set, false );
+    }
+    if(!node) break;
+
     for(uint n = 0; n < nn; ++n) {
       while(other_nodes[n] && other_nodes[n]->index < node->index) {
         other_nodes[n] = other_nodes[n]->next;
       }
-
-      if(other_nodes[n] == NULL) {
-        node = destroy_node( node, prev, &bs->sets[set_id], true );
-        assert(node == NULL);
-        advance = false;
-        break;
-      }
-
-      while(node && other_nodes[n]->index > node->index) {
-        node = destroy_node(node, prev, &bs->sets[set_id], false );
-        advance = false;
-        break;
-      }
-      if(!advance) break;
 
       if(node && other_nodes[n]->index == node->index && node->block != other_nodes[n]->block) {
         prepare_to_change(node);
@@ -379,6 +377,11 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
           node->block->slots[i] &= other_nodes[n]->block->slots[i];
         }
         update_pop_count(node->block);
+        if(node->block->pop_count == 0) {
+          node = destroy_node(node, prev, set, false);
+          advance = false;
+          break;
+        }
       }
     }
 

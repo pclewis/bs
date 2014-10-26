@@ -198,6 +198,9 @@ time_bs_intersection()
   for(BS_SetID i = 1; i < 1024; ++i) {
     bs_copy(bs, 0, i);
     bs_intersection(bs, 0, 1024, vs);
+    for(BS_Node *node = bs->sets[0].first; node; node = node->next) {
+      assert(node->block->pop_count == 0);
+    }
   }
 
   clock_gettime(CLOCK_REALTIME, &stop);
