@@ -97,8 +97,8 @@ compare_uints(const void *a, const void *b)
 static uint *
 sort_uints(size_t n, const uint *vs)
 {
-  uint *vs_copy = safe_alloc(n, sizeof(vs), false);
-  memcpy(vs_copy, vs, n * sizeof(vs));
+  uint *vs_copy = safe_alloc(n, sizeof(uint), false);
+  memcpy(vs_copy, vs, n * sizeof(uint));
   qsort(vs_copy, n, sizeof(uint), compare_uints);
   return vs_copy;
 }
@@ -134,9 +134,11 @@ destroy_node(BS_Node *node, BS_Node *prev, BS_Node **head, bool to_end)
       node->block->ref_count -= 1;
     } else {
       free(node->block);
+      node->block = NULL;
     }
 
     next = node->next;
+    node->next = NULL;
     free(node);
     node = next;
   } while (node && to_end);
@@ -154,6 +156,7 @@ prepare_to_change(BS_Node *node)
     BS_Block *block = safe_alloc(1, sizeof(BS_Block), false);
     memcpy(block, node->block, sizeof(BS_Block));
     node->block->ref_count -= 1;
+    block->ref_count = 0;
     node->block = block;
   }
 }
@@ -168,13 +171,16 @@ prepare_to_change(BS_Node *node)
 static BS_Node *
 find_node(BS_Node **head, BS_Node *start, uint index, bool create)
 {
-  BS_Node *prev = start,
+  BS_Node *prev = NULL,
     *node = NULL;
 
-  if( start == NULL || start->index > index )
+  if( start == NULL || start->index > index ) {
+    if(start)fprintf(stderr, "find_node: jumped to head [%u>%u]\n", start->index, index);
     node = *head;
-  else
+  } else {
+    prev = start;
     node = start->next;
+  }
 
   for(; node != NULL && node->index < index; prev = node, node = node->next) {
     /* do nothing */
@@ -271,20 +277,24 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
     *prev = NULL,
     **other_nodes = safe_alloc(n_vs, sizeof(BS_Node*), false);
 
-  for(uint n = 0; n < n_vs; ++n) {
-    assert( vs[n] <= bs->max_set_id );
-    other_nodes[n] = bs->sets[vs[n]];
+  uint nn = 0;
+  for(uint vn = 0; vn < n_vs; ++vn) {
+    assert( vs[vn] <= bs->max_set_id );
+    if(vs[vn] != set_id)  {
+      other_nodes[nn] = bs->sets[vs[vn]];
+      nn += 1;
+    }
   }
 
   while(node != NULL) {
     bool advance = true;
-    for(uint n = 0; n < n_vs; ++n) {
+    for(uint n = 0; n < nn; ++n) {
       while(other_nodes[n] && other_nodes[n]->index < node->index) {
         other_nodes[n] = other_nodes[n]->next;
       }
 
       if(other_nodes[n] == NULL) {
-        destroy_node( node, prev, &bs->sets[set_id], true );
+        node = destroy_node( node, prev, &bs->sets[set_id], true );
         advance = false;
         break;
       }
@@ -294,8 +304,9 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
         advance = false;
         break;
       }
+      if(!advance) break;
 
-      if(node && other_nodes[n]->index == node->index) {
+      if(node && other_nodes[n]->index == node->index && node->block != other_nodes[n]->block) {
         prepare_to_change(node);
         for(int i = BITNSLOTS(GROUP_SIZE); i-- > 0; ) {
           node->block->slots[i] &= other_nodes[n]->block->slots[i];
@@ -362,11 +373,9 @@ bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id)
 {
   assert( set_id <= bs->max_set_id );
 
-  BS_Node *node = bs->sets[set_id], *prev = NULL;
+  bs_clear(bs, set_id);
 
-  if(node) destroy_node(node, NULL, &bs->sets[set_id], true);
-
-  for(node = bs->sets[src_set_id]; node; node = node->next) {
+  for(BS_Node *node = bs->sets[src_set_id], *prev=NULL; node; node = node->next) {
     BS_Node *n = new_node( node->index, node->block, NULL, prev, &bs->sets[set_id] );
     prev = n;
   }
@@ -377,6 +386,7 @@ bs_clear(BS_State *bs, BS_SetID set_id)
 {
   assert(set_id <= bs->max_set_id);
   if(bs->sets[set_id]) destroy_node(bs->sets[set_id], NULL, NULL, true);
+  bs->sets[set_id] = NULL;
 }
 
 void

@@ -3,9 +3,10 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <time.h>
 #include "bs.h"
 
-void
+static void
 test_bs_add()
 {
   BS_State bs;
@@ -34,7 +35,7 @@ test_bs_add()
   bs_reset(&bs);
 }
 
-void
+static void
 test_bs_intersection()
 {
   BS_State bs;
@@ -75,7 +76,7 @@ test_bs_intersection()
   bs_reset(&bs);
 }
 
-void
+static void
 test_bs_union()
 {
   BS_State bs;
@@ -118,7 +119,7 @@ test_bs_union()
   bs_reset(&bs);
 }
 
-void
+static void
 test_bs_copy()
 {
   BS_State bs;
@@ -153,6 +154,75 @@ test_bs_copy()
   bs_reset(&bs);
 }
 
+static int
+rand_range(int min, int max)
+{
+  assert(max > min);
+  int diff = max - min;
+  assert(diff <= RAND_MAX);
+  int n = rand() % diff;
+  return n + min;
+}
+
+static void
+print_time_diff(struct timespec *start, struct timespec *stop)
+{
+  if(start->tv_sec == stop->tv_sec) {
+    printf("%d nsec", (int)(stop->tv_nsec - start->tv_nsec));
+  } else {
+    printf("%lf", (double)((stop->tv_sec - start->tv_sec) + (stop->tv_nsec - start->tv_nsec)/1000000000.0));
+  }
+}
+
+static void
+time_bs_intersection()
+{
+  struct timespec start, stop;
+  BS_State bs;
+  BS_Node* sets[1024] = {0};
+  bs.sets = sets;
+  bs.max_set_id = 1023;
+
+  srand(1);
+
+  clock_gettime(CLOCK_REALTIME, &start);
+
+  uint t_n = 0;
+  for(BS_SetID i = 1; i < 1024; ++i) {
+    uint n = rand_range(100, 1000000);
+    t_n += n;
+    uint *vs = calloc(n, sizeof(uint));
+    for(size_t j = 0; j < n; ++j) {
+      vs[j] = (uint)rand_range(1000, 2500000);
+    }
+    bs_add( &bs, i, n, vs );
+    free(vs);
+  }
+  clock_gettime(CLOCK_REALTIME, &stop);
+  printf("bs_add [%u / 1024]: ", t_n);
+  print_time_diff(&start, &stop);
+  printf("\n");
+
+  uint vs[1024];
+  for(uint i = 0; i < 1024; ++i) {
+    vs[i] = i;
+  }
+
+  clock_gettime(CLOCK_REALTIME, &start);
+
+  for(BS_SetID i = 1; i < 1024; ++i) {
+    bs_copy(&bs, 0, i);
+    bs_intersection(&bs, 0, 1024, vs);
+  }
+
+  clock_gettime(CLOCK_REALTIME, &stop);
+  printf("bs_intersection [1024*1024]: ");
+  print_time_diff(&start, &stop);
+  printf("\n");
+
+  bs_reset(&bs);
+}
+
 int
 main()
 {
@@ -160,6 +230,8 @@ main()
   test_bs_intersection();
   test_bs_union();
   test_bs_copy();
+
+  time_bs_intersection();
   printf("All tests completed successfully.\n");
   return 0;
 }

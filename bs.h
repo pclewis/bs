@@ -24,8 +24,8 @@ typedef unsigned int uint;
 typedef uint BS_SetID;
 
 typedef struct {
-  size_t ref_count; /* 0 = no shared references */
   uint slots[BITNSLOTS(GROUP_SIZE)];
+  size_t ref_count; /* 0 = no shared references */
 } BS_Block;
 
 typedef struct _BS_Node {
