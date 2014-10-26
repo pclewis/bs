@@ -185,6 +185,24 @@ destroy_node(BS_Node *node, BS_Node *prev, BS_Set *set, bool to_end)
   return next;
 }
 
+BS_State *
+bs_new(uint n_sets, uint n_bits)
+{
+  BS_State *bs = safe_alloc( 1, sizeof(BS_State), true );
+  bs->sets = safe_alloc( n_sets, sizeof(BS_Set), true );
+  bs->max_set_id = n_sets - 1;
+  bs->max_bit_id = n_bits - 1;
+  return bs;
+}
+
+void
+bs_destroy(BS_State *bs)
+{
+  bs_reset(bs);
+  free(bs->sets);
+  free(bs);
+}
+
 static void
 prepare_to_change(BS_Node *node)
 {

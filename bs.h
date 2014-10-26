@@ -17,7 +17,7 @@
 // (1<<11) - 1847500  15000ms
 // (1<<12) - 2592972
 // (1<<14) - 4239380 (segfault)
-#define GROUP_SIZE (1<<10)
+#define GROUP_SIZE (1<<11)
 #define MAX_SETS (1<<22)
 
 typedef unsigned int uint;
@@ -39,11 +39,13 @@ typedef struct _BS_Node {
 typedef struct {
   uint n_nodes;
   BS_Node *first;
+  uint *node_map;
 } BS_Set;
 
 typedef struct {
   BS_Set *sets;
   BS_SetID max_set_id;
+  BS_BitID max_bit_id;
 } BS_State;
 
 typedef enum {
@@ -54,6 +56,8 @@ typedef enum {
   BS_OP_TEST_EVERY,
 } BS_OP;
 
+BS_State *bs_new(uint n_sets, uint n_bits);
+void bs_destroy(BS_State *bs);
 void bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs);
 void bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs);
 uint *bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs);
