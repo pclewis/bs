@@ -127,12 +127,6 @@ safe_realloc(void *ptr, size_t nmemb, size_t size)
   return ptr;
 }
 
-static int
-compare_uints(const void *a, const void *b)
-{
-  return (int)(*(uint*)a - *(uint*)b);
-}
-
 static uint *
 sort_uints(size_t n, const uint *vs)
 {
@@ -240,15 +234,15 @@ find_node(BS_Set *set, BS_Node *start, uint index, bool create)
 }
 
 void
-bs_set(BS_State *bs, BS_SetID set_id, bool value, size_t n_vs, const uint *vs)
+bs_set(BS_State *bs, BS_SetID set_id, bool value, size_t n_vs, const BS_BitID *vs)
 {
   assert( set_id <= bs->max_set_id );
 
-  uint *sorted_vs = sort_uints(n_vs, vs);
+  BS_BitID *sorted_vs = sort_uints(n_vs, vs);
   BS_Node *node = NULL;
 
   for(uint n = 0; n < n_vs; ++n) {
-    uint i = sorted_vs[n], index = i / GROUP_SIZE;
+    BS_BitID i = sorted_vs[n], index = i / GROUP_SIZE;
 
     if(node == NULL || node->index != index) {
       if(node != NULL)
@@ -269,7 +263,7 @@ bs_set(BS_State *bs, BS_SetID set_id, bool value, size_t n_vs, const uint *vs)
  * Add values to a set.
  */
 void
-bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
+bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs)
 {
   bs_set(bs, set_id, true, n_vs, vs);
 }
@@ -278,7 +272,7 @@ bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
  * Remove values from a set.
  */
 void
-bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
+bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs)
 {
   bs_set(bs, set_id, false, n_vs, vs);
 }
@@ -314,14 +308,8 @@ bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
   return vs;
 }
 
-static int
-compare_sets(const void *a, const void *b)
-{
-  return (int)( ((BS_Set*)a)->n_nodes - ((BS_Set*)b)->n_nodes);
-}
-
 void
-bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
+bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
 {
   assert( set_id <= bs->max_set_id );
 
@@ -386,7 +374,7 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
 }
 
 void
-bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs)
+bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
 {
   assert( set_id <= bs->max_set_id );
 

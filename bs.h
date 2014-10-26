@@ -22,6 +22,7 @@
 
 typedef unsigned int uint;
 typedef uint BS_SetID;
+typedef uint BS_BitID;
 
 typedef struct {
   uint slots[BITNSLOTS(GROUP_SIZE)];
@@ -53,11 +54,11 @@ typedef enum {
   BS_OP_TEST_EVERY,
 } BS_OP;
 
-void bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
-void bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
+void bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs);
+void bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs);
 uint *bs_to_uints(BS_State *bs, BS_SetID set_id, size_t *n_vs);
-void bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
-void bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const uint *vs);
+void bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs);
+void bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs);
 void bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id);
 void bs_clear(BS_State *bs, BS_SetID set_id);
 void bs_reset(BS_State *bs);

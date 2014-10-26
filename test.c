@@ -24,7 +24,7 @@ test_bs_add()
   assert( bs.sets[1].first->block->slots[0] == 3 );
   assert( bs.sets[1].first->next != NULL );
   assert( bs.sets[1].first->next->block != NULL );
-  assert( bs.sets[1].first->next->index == (80000 / 1024) );
+  assert( bs.sets[1].first->next->index == (80000 / GROUP_SIZE) );
   assert( bs.sets[1].first->next->next == NULL );
 
   size_t n_vs;
