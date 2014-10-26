@@ -10,7 +10,7 @@ static void
 test_bs_add()
 {
   BS_State bs;
-  BS_Node* sets[5] = {0};
+  BS_Set sets[5] = {[0 ... 4].first = NULL, [0 ... 4].n_nodes = 0};
   bs.sets = sets;
   bs.max_set_id = 4;
 
@@ -18,14 +18,14 @@ test_bs_add()
 
   bs_add( &bs, 1, 4, ns );
 
-  assert( bs.sets[1] != NULL );
-  assert( bs.sets[1]->block != NULL );
-  assert( bs.sets[1]->index == 0 );
-  assert( bs.sets[1]->block->slots[0] == 3 );
-  assert( bs.sets[1]->next != NULL );
-  assert( bs.sets[1]->next->block != NULL );
-  assert( bs.sets[1]->next->index == (80000 / 1024) );
-  assert( bs.sets[1]->next->next == NULL );
+  assert( bs.sets[1].first != NULL );
+  assert( bs.sets[1].first->block != NULL );
+  assert( bs.sets[1].first->index == 0 );
+  assert( bs.sets[1].first->block->slots[0] == 3 );
+  assert( bs.sets[1].first->next != NULL );
+  assert( bs.sets[1].first->next->block != NULL );
+  assert( bs.sets[1].first->next->index == (80000 / 1024) );
+  assert( bs.sets[1].first->next->next == NULL );
 
   size_t n_vs;
   uint *uints = bs_to_uints( &bs, 1, &n_vs );
@@ -39,7 +39,7 @@ static void
 test_bs_intersection()
 {
   BS_State bs;
-  BS_Node *sets[5] = {0};
+  BS_Set sets[5] = {[0 ... 4].first = NULL, [0 ... 4].n_nodes = 0};
   bs.sets = sets;
   bs.max_set_id = 4;
 
@@ -80,7 +80,7 @@ static void
 test_bs_union()
 {
   BS_State bs;
-  BS_Node *sets[5] = {0};
+  BS_Set sets[5] = {[0 ... 4].first = NULL, [0 ... 4].n_nodes = 0};
   bs.sets = sets;
   bs.max_set_id = 4;
 
@@ -123,7 +123,7 @@ static void
 test_bs_copy()
 {
   BS_State bs;
-  BS_Node *sets[5] = {0};
+  BS_Set sets[5] = {[0 ... 4].first = NULL, [0 ... 4].n_nodes = 0};
   bs.sets = sets;
   bs.max_set_id = 4;
 
@@ -139,13 +139,13 @@ test_bs_copy()
   bs_copy( &bs, 3, 2 );
   bs_copy( &bs, 4, 1 );
 
-  for (BS_Node *n1 = bs.sets[1], *n2 = bs.sets[4]; n1 && n2; n1 = n1->next, n2 = n2->next) {
+  for (BS_Node *n1 = bs.sets[1].first, *n2 = bs.sets[4].first; n1 && n2; n1 = n1->next, n2 = n2->next) {
     assert(n1->index == n2->index);
     assert(n1->block == n2->block);
     assert(n1->block->ref_count == 1);
   }
 
-  for (BS_Node *n1 = bs.sets[2], *n2 = bs.sets[3]; n1 && n2; n1 = n1->next, n2 = n2->next) {
+  for (BS_Node *n1 = bs.sets[2].first, *n2 = bs.sets[3].first; n1 && n2; n1 = n1->next, n2 = n2->next) {
     assert(n1->index == n2->index);
     assert(n1->block == n2->block);
     assert(n1->block->ref_count == 1);
@@ -179,7 +179,7 @@ time_bs_intersection()
 {
   struct timespec start, stop;
   BS_State bs;
-  BS_Node* sets[1024] = {0};
+  BS_Set sets[1024] = {[0 ... 1023].first = NULL, [0 ... 1023].n_nodes = 0};
   bs.sets = sets;
   bs.max_set_id = 1023;
 

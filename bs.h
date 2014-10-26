@@ -26,6 +26,7 @@ typedef uint BS_SetID;
 typedef struct {
   uint slots[BITNSLOTS(GROUP_SIZE)];
   size_t ref_count; /* 0 = no shared references */
+  size_t pop_count;
 } BS_Block;
 
 typedef struct _BS_Node {
@@ -35,7 +36,12 @@ typedef struct _BS_Node {
 } BS_Node;
 
 typedef struct {
-  BS_Node **sets;
+  uint n_nodes;
+  BS_Node *first;
+} BS_Set;
+
+typedef struct {
+  BS_Set *sets;
   BS_SetID max_set_id;
 } BS_State;
 
