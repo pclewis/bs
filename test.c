@@ -24,7 +24,6 @@ test_bs_add()
   bs_destroy(bs);
 }
 
-/*
 static void
 test_bs_intersection()
 {
@@ -62,7 +61,6 @@ test_bs_intersection()
   free(nuints);
   bs_destroy(bs);
 }
-*/
 
 /*
 static void
@@ -230,7 +228,7 @@ int
 main()
 {
   test_bs_add();
-  //test_bs_intersection();
+  test_bs_intersection();
   //test_bs_copy();
 
   //time_bs_intersection();

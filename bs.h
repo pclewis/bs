@@ -53,8 +53,8 @@ void bs_destroy(BS_State *bs);
 void bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs);
 void bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs);
 nuint *bs_to_nuints(BS_State *bs, BS_SetID set_id, size_t *n_vs);
-/*
 void bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs);
+/*
 void bs_union(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs);
 void bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id);
 */

@@ -80,9 +80,9 @@ builtin_popcnt_unrolled_errata_manual(const nuint* buf, size_t len)
 }
 
 static inline int
-popcnt(const nuint *n)
+popcnt(nuint n)
 {
-  return __builtin_popcountll(*n);
+  return __builtin_popcountll(n);
 }
 
 static void *
@@ -175,7 +175,7 @@ bit_index( nuint bit_n, nuint v )
 {
   nuint index = 0, t;
   while( (t=__builtin_ctz(v)) < bit_n ) {
-    v ^= (1<<t);
+    v ^= (1L<<t);
     ++index;
   }
   return index;
@@ -185,24 +185,27 @@ static uintptr_t *
 insert_v(BS_Node **nodep, nuint bit_n, uintptr_t v)
 {
   BS_Node *node = *nodep;
-  nuint max_bucket_n = popcnt(&node->mask);
+  nuint n_bits = popcnt(node->mask);
 
-  assert( (node->mask & (1<<bit_n)) == 0 );
-  node->mask |= (1<<bit_n);
+  assert( (node->mask & (1L<<bit_n)) == 0 );
+  node->mask |= (1L<<bit_n);
 
   nuint bucket_n = bit_index(bit_n, node->mask);
 
-  if(is_0_or_power_of_2(max_bucket_n)) {
-    nuint new_max = max_bucket_n ? max_bucket_n * 2 : 2;
-    node = safe_realloc(node, 1, sizeof(BS_Node) + (sizeof(node->branches[0]) * new_max));
+  size_t current_size = is_0_or_power_of_2(n_bits) ? n_bits : next_power_of_2(n_bits);
+  size_t new_size = current_size;
+
+  if(n_bits + 1 > current_size) {
+    new_size = current_size ? current_size * 2 : 2;
+    node = safe_realloc(node, 1, sizeof(BS_Node) + (sizeof(uintptr_t) * new_size));
     *nodep = node;
-    max_bucket_n = new_max;
-  } else {
-    max_bucket_n = next_power_of_2(max_bucket_n);
   }
 
-  // shove everything right a slot
-  memmove(node->branches + bucket_n + 1, node->branches + bucket_n, (max_bucket_n - bucket_n - 1) * sizeof(nuint));
+  if(bucket_n < n_bits) {
+    memmove( node->branches + bucket_n + 1,
+             node->branches + bucket_n,
+             (n_bits - bucket_n) * sizeof(uintptr_t) );
+  }
 
   node->branches[bucket_n] = v;
 
@@ -236,7 +239,7 @@ find_leaf(BS_Node **nodep, nuint depth, nuint i, bool create)
   nuint bit_n = i / bucket_size; // 0 - 63
   assert(bit_n < NUINT_BIT);
 
-  nuint bit_v = 1 << bit_n;
+  nuint bit_v = 1L << bit_n;
 
   /* in val: descend */
   /* else in mask and create: set in val, wipe child val, descend */
@@ -276,7 +279,7 @@ bs_add(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs)
   for (size_t n = 0; n < n_vs; ++n) {
     nuint v = vs[n];
     uintptr_t *leaf = find_leaf( &bs->sets[set_id].root, bs->depth, v-1, true );
-    *leaf |= (1 << ((v-1) % NUINT_BIT));
+    *leaf |= (1L << ((v-1) % NUINT_BIT));
   }
 }
 
@@ -290,7 +293,7 @@ bs_remove(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_BitID *vs)
     nuint v = vs[n];
     uintptr_t *leaf = find_leaf( &bs->sets[set_id].root, bs->depth, v-1, true );
     if(leaf) {
-      *leaf &= ~(1 << (v % NUINT_BIT));
+      *leaf &= ~(1L << (v % NUINT_BIT));
     }
   }
 }
@@ -317,10 +320,10 @@ find_nuints( BS_Node *node, nuint depth, nuint base, nuint **vs, size_t *alloced
 
   nuint bucket_n = 0;
   for(nuint i = 0; i < NUINT_BIT; ++i) {
-    if(node->value & (1<<i)) {
+    if(node->value & (1L<<i)) {
       if(depth == 0) {
         for(nuint j = 0; j < NUINT_BIT; ++j) {
-          if(node->branches[bucket_n] & (1<<j)) {
+          if(node->branches[bucket_n] & (1L<<j)) {
             add_v( vs, alloced_vs, n_vs, base+(i*bucket_size)+j+1 );
           }
         }
@@ -328,7 +331,7 @@ find_nuints( BS_Node *node, nuint depth, nuint base, nuint **vs, size_t *alloced
         find_nuints( (BS_Node*)node->branches[bucket_n], depth - 1, base + (bucket_size * i), vs, alloced_vs, n_vs );
       }
       bucket_n += 1;
-    } else if (node->mask & (1<<i)) {
+    } else if (node->mask & (1L<<i)) {
       bucket_n += 1;
     }
   }
@@ -354,22 +357,73 @@ bs_to_nuints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
   return vs;
 }
 
-/*
+static void
+intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
+{
+  for(uint n = 0; n < n_vs; ++n) {
+    node->value &= others[n]->value;
+  }
+
+  if(node->value == 0) return;
+
+  if(depth == 0) {
+    for(uint bit_n = 0; bit_n < NUINT_BIT; ++bit_n) {
+      if(node->value & (1L<<bit_n)) {
+        uint my_b = bit_index(bit_n, node->mask);
+        for(uint n = 0; n < n_vs; ++n) {
+          uint b = bit_index( bit_n, others[n]->mask );
+          node->branches[my_b] &= others[n]->branches[b];
+        }
+
+      }
+    }
+  } else {
+    BS_Node **next_others = safe_alloc(n_vs, sizeof(BS_Node*), false);
+    for(uint bit_n = 0; bit_n < NUINT_BIT; ++bit_n) {
+      if(node->value & (1L<<bit_n)) {
+        for(uint n = 0; n < n_vs; ++n) {
+          uint b = bit_index( bit_n, others[n]->mask );
+          next_others[n] = (BS_Node*)others[n]->branches[b];
+        }
+
+        uint b = bit_index(bit_n, node->mask);
+        intersect_nodes( (BS_Node*)node->branches[b], depth - 1, n_vs, next_others );
+      }
+    }
+  }
+}
+
 void
 bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
 {
+  BS_Node *node = bs->sets[set_id].root;
+  if(node == NULL) return;
+
+  BS_Node **others = safe_alloc( n_vs, sizeof(BS_Node*), false);
+  for(uint n = 0; n < n_vs; ++n) {
+    others[n] = bs->sets[vs[n]].root;
+    /* TODO handle null */
+  }
+
+  intersect_nodes( node, bs->depth, n_vs, others );
 }
 
 void
 bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id)
 {
+  bs_clear(bs, set_id);
+  /* HACK */
+  size_t n_vs;
+  nuint *nuints = bs_to_nuints(bs, src_set_id, &n_vs);
+  bs_add(bs, set_id, n_vs, nuints);
+  free(nuints);
 }
-*/
 
 void
 bs_clear(BS_State *bs, BS_SetID set_id)
 {
   assert(set_id <= bs->max_set_id);
+  bs->sets[set_id].root = NULL; /* HACK */
 }
 
 void
