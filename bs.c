@@ -363,14 +363,13 @@ intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
   }
 
   nuint v = node->value;
+  uint my_b = 0;
   while(v) {
-    uint bit_n = __builtin_ctzll(v);
-    nuint bit_v = 1L << bit_n;
+    nuint bit_v = (v & ~(v-1));
     v ^= bit_v;
-    uint my_b = bit_index(bit_n, node->mask);
 
     for(uint n = 0; n < n_vs; ++n) {
-      uint b = bit_index( bit_n, others[n]->mask );
+      uint b = popcnt( others[n]->mask & (bit_v-1) );
       if(depth == 0) {
         if((node->branches[my_b] &= others[n]->branches[b]) == 0) {
           node->value ^= bit_v;
@@ -383,6 +382,8 @@ intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
         }
       }
     }
+
+    my_b += 1;
   }
 
   return node->value;
