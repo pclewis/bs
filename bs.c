@@ -173,12 +173,7 @@ is_0_or_power_of_2(nuint v)
 static inline nuint
 bit_index( nuint bit_n, nuint v )
 {
-  nuint index = 0, t;
-  while( (t=__builtin_ctz(v)) < bit_n ) {
-    v ^= (1L<<t);
-    ++index;
-  }
-  return index;
+  return bit_n ? popcnt(v << (sizeof(v) * CHAR_BIT - bit_n)) : 0;
 }
 
 static uintptr_t *
@@ -196,7 +191,7 @@ insert_v(BS_Node **nodep, nuint bit_n, uintptr_t v)
   size_t new_size = current_size;
 
   if(n_bits + 1 > current_size) {
-    new_size = current_size ? current_size * 2 : 2;
+    new_size = current_size ? current_size * 2 : 16;
     node = safe_realloc(node, 1, sizeof(BS_Node) + (sizeof(uintptr_t) * new_size));
     *nodep = node;
   }
@@ -374,7 +369,6 @@ intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
           uint b = bit_index( bit_n, others[n]->mask );
           node->branches[my_b] &= others[n]->branches[b];
         }
-
       }
     }
   } else {

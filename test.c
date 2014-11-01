@@ -104,7 +104,6 @@ test_bs_union()
 }
 */
 
- /*
 static void
 test_bs_copy()
 {
@@ -166,10 +165,11 @@ time_bs_intersection()
       vs[j] = (nuint)rand_range(1000, 2500000);
     }
     bs_add( bs, i, n, vs );
+    //printf("%lu: %lu\n", i, n);
     free(vs);
   }
   clock_gettime(CLOCK_REALTIME, &stop);
-  printf("bs_add [%u / 1024]: ", t_n);
+  printf("bs_add [%lu / 1024]: ", t_n);
   print_time_diff(&start, &stop);
   printf("\n");
 
@@ -203,8 +203,16 @@ time_bs_intersection()
 
   clock_gettime(CLOCK_REALTIME, &start);
   for(BS_SetID i = 1; i < 1024; ++i) {
+    struct timespec istart, istop;
     bs_copy(bs, 0, i);
+
+    clock_gettime(CLOCK_REALTIME, &istart);
     bs_intersection(bs, 0, 1024, vs);
+    clock_gettime(CLOCK_REALTIME, &istop);
+
+    printf("bs_intersection [%lu]: ", i);
+    print_time_diff(&istart, &istop);
+    printf("\n");
   }
 
   clock_gettime(CLOCK_REALTIME, &stop);
@@ -222,16 +230,15 @@ time_bs_intersection()
 
   bs_destroy(bs);
 }
-*/
 
 int
 main()
 {
   test_bs_add();
   test_bs_intersection();
-  //test_bs_copy();
+  test_bs_copy();
 
-  //time_bs_intersection();
+  time_bs_intersection();
   printf("All tests completed successfully.\n");
   return 0;
 }
