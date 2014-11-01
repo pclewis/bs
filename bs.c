@@ -82,7 +82,12 @@ builtin_popcnt_unrolled_errata_manual(const nuint* buf, size_t len)
 static inline int
 popcnt(nuint n)
 {
-  return __builtin_popcountll(n);
+  nuint r;
+  __asm__("popcnt %1, %0"
+          : "=r" (r)
+          : "r" (n)
+          );
+  return r;
 }
 
 static void *
