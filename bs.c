@@ -82,12 +82,10 @@ builtin_popcnt_unrolled_errata_manual(const nuint* buf, size_t len)
 static inline int
 popcnt(nuint n)
 {
-  nuint r;
-  __asm__("popcnt %1, %0"
-          : "=r" (r)
-          : "r" (n)
+  __asm__("popcnt %0, %0"
+          : "+r" (n)
           );
-  return r;
+  return n;
 }
 
 static void *
@@ -357,39 +355,37 @@ bs_to_nuints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
   return vs;
 }
 
-static void
+static nuint
 intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
 {
   for(uint n = 0; n < n_vs; ++n) {
     node->value &= others[n]->value;
   }
 
-  if(node->value == 0) return;
+  nuint v = node->value;
+  while(v) {
+    uint bit_n = __builtin_ctzll(v);
+    nuint bit_v = 1L << bit_n;
+    v ^= bit_v;
+    uint my_b = bit_index(bit_n, node->mask);
 
-  if(depth == 0) {
-    for(uint bit_n = 0; bit_n < NUINT_BIT; ++bit_n) {
-      if(node->value & (1L<<bit_n)) {
-        uint my_b = bit_index(bit_n, node->mask);
-        for(uint n = 0; n < n_vs; ++n) {
-          uint b = bit_index( bit_n, others[n]->mask );
-          node->branches[my_b] &= others[n]->branches[b];
+    for(uint n = 0; n < n_vs; ++n) {
+      uint b = bit_index( bit_n, others[n]->mask );
+      if(depth == 0) {
+        if((node->branches[my_b] &= others[n]->branches[b]) == 0) {
+          node->value ^= bit_v;
+          break;
         }
-      }
-    }
-  } else {
-    BS_Node **next_others = safe_alloc(n_vs, sizeof(BS_Node*), false);
-    for(uint bit_n = 0; bit_n < NUINT_BIT; ++bit_n) {
-      if(node->value & (1L<<bit_n)) {
-        for(uint n = 0; n < n_vs; ++n) {
-          uint b = bit_index( bit_n, others[n]->mask );
-          next_others[n] = (BS_Node*)others[n]->branches[b];
+      } else {
+        if(intersect_nodes((BS_Node*)node->branches[my_b], depth - 1, 1, (BS_Node**)&others[n]->branches[b]) == 0) {
+          node->value ^= bit_v;
+          break;
         }
-
-        uint b = bit_index(bit_n, node->mask);
-        intersect_nodes( (BS_Node*)node->branches[b], depth - 1, n_vs, next_others );
       }
     }
   }
+
+  return node->value;
 }
 
 void

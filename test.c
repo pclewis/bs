@@ -234,9 +234,9 @@ time_bs_intersection()
 int
 main()
 {
-  test_bs_add();
-  test_bs_intersection();
-  test_bs_copy();
+  test_bs_add(); printf("bs_add: success\n");
+  test_bs_intersection(); printf("bs_intersection: success\n");
+  test_bs_copy(); printf("bs_copy: success\n");
 
   time_bs_intersection();
   printf("All tests completed successfully.\n");
