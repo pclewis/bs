@@ -2,10 +2,10 @@ typedef uintptr_t nuint;
 typedef nuint BS_SetID;
 typedef nuint BS_BitID;
 
-#define NUINT_BIT (sizeof(uint) * 8)
+#define NUINT_BIT (sizeof(nuint) * 8)
 
 // adapted from comp.lang.c FAQ Q 20.8
-#define BITMASK(b) (1 << ((b) % NUINT_BIT))
+#define BITMASK(b) (1L << ((b) % NUINT_BIT))
 #define BITSLOT(b) ((b) / NUINT_BIT)
 #define BITSET(a, b) ((a)[BITSLOT(b)] |= BITMASK(b))
 #define BITSETV(a, b, v) ((v)?BITSET(a,b):BITCLEAR(a,b))
@@ -22,11 +22,11 @@ typedef nuint BS_BitID;
 #define GROUP_SIZE (1<<11)
 #define MAX_SETS (1<<22)
 
-
 typedef struct {
-  nuint mask;
-  nuint value;
-  nuint branches[];
+  uint64_t branch_map[4]; // 32 bytes
+  uint64_t value[4];      // 32 bytes
+  // -- cache line --
+  uintptr_t branches[];   // ptr or val, blocks of 64 bytes
 } BS_Node;
 
 typedef struct {

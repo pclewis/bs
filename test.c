@@ -12,15 +12,34 @@ test_bs_add()
 {
   BS_State *bs = bs_new(5, 100000);
 
-  nuint ns[4] = {1,2,80000,80001};
+  nuint ns0[4] = {1,2,80000,80001};
+  nuint ns1[25] = {65,343,1084,2752,4133,10293,10439,11143,11938,12223,12837,
+                  13020,13111,15325,15388,15427,16791,18050,19083,19213,21752,
+                  25447,26898,42000,90210};
+  nuint ns2[25] = {167,1372,5467,6061,8073,12413,15138,16140,19720,20580,21264,
+                  22654,24339,25377,26035,26447,26476,26582,26944,28540,29817,
+                  29987,30970,42000,90212};
 
-  bs_add( bs, 1, 4, ns );
+  bs_add( bs, 0,  4, ns0 );
+  bs_add( bs, 1, 25, ns1 );
+  bs_add( bs, 2, 25, ns2 );
 
   size_t n_vs;
-  nuint *nuints = bs_to_nuints( bs, 1, &n_vs );
+  nuint *nuints = bs_to_nuints( bs, 0, &n_vs );
   assert( n_vs == 4 );
-  assert( memcmp(ns, nuints, sizeof(ns)) == 0 );
+  assert( memcmp(ns0, nuints, sizeof(ns0)) == 0 );
   free(nuints);
+
+  nuints = bs_to_nuints( bs, 1, &n_vs );
+  assert( n_vs == 25 );
+  assert( memcmp(ns1, nuints, sizeof(ns1)) == 0 );
+  free(nuints);
+
+  nuints = bs_to_nuints( bs, 2, &n_vs );
+  assert( n_vs == 25 );
+  assert( memcmp(ns2, nuints, sizeof(ns2)) == 0 );
+  free(nuints);
+
   bs_destroy(bs);
 }
 

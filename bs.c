@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <assert.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include "bs.h"
 
 
@@ -14,6 +15,20 @@
 #define SORT_TYPE nuint
 #define SORT_CMP(x,y) ((int)((x) - (y)))
 #include "sort.h"
+
+#define BS1 (sizeof(uint64_t) * CHAR_BIT)
+#define BSM (sizeof(((BS_Node*)0)->value) * CHAR_BIT)
+#define BSM5 (BSM*BSM*BSM*BSM*BSM)
+static const uint64_t BUCKET_SIZES[] = {
+  sizeof(uint64_t) * CHAR_BIT, // 1<<6
+  BS1 * BSM,                   // 1<<14
+  BS1 * BSM * BSM,             // 1<<22
+  BS1 * BSM * BSM * BSM,       // 1<<30
+  BS1 * BSM * BSM * BSM * BSM, // 1<<38
+  BS1 * BSM5,                  // 1<<46
+  BS1 * BSM5 * BSM,            // 1<<54
+  BS1 * BSM5 * BSM * BSM,      // 1<<62
+};
 
 /*
 static void
@@ -57,25 +72,22 @@ interrupt(int sig)
 */
 
 // adapted from http://danluu.com/assembly-intrinsics/
-static nuint
-builtin_popcnt_unrolled_errata_manual(const nuint* buf, size_t len)
+static inline uint_fast32_t
+popcnt4(const uint64_t* buf)
 {
-  assert(len % 4 == 0);
-  nuint cnt[4] = {0};
+  uint_fast32_t cnt[4] = {0};
 
-  for (size_t i = 0; i < len; i+=4) {
-    __asm__(
-        "popcnt %4, %4  \n\t"
-        "add %4, %0     \n\t"
-        "popcnt %5, %5  \n\t"
-        "add %5, %1     \n\t"
-        "popcnt %6, %6  \n\t"
-        "add %6, %2     \n\t"
-        "popcnt %7, %7  \n\t"
-        "add %7, %3     \n\t" // +r means input/output, r means intput
-        : "+r" (cnt[0]), "+r" (cnt[1]), "+r" (cnt[2]), "+r" (cnt[3])
-        : "r"  (buf[i]), "r"  (buf[i+1]), "r"  (buf[i+2]), "r"  (buf[i+3]));
-  }
+  __asm__("popcnt %4, %4  \n\t"
+          "add %4, %0     \n\t"
+          "popcnt %5, %5  \n\t"
+          "add %5, %1     \n\t"
+          "popcnt %6, %6  \n\t"
+          "add %6, %2     \n\t"
+          "popcnt %7, %7  \n\t"
+          "add %7, %3     \n\t" // +r means input/output, r means intput
+          : "+r" (cnt[0]), "+r" (cnt[1]), "+r" (cnt[2]), "+r" (cnt[3])
+          : "r"  (buf[0]), "r"  (buf[1]), "r"  (buf[2]), "r"  (buf[3]));
+
   return cnt[0] + cnt[1] + cnt[2] + cnt[3];
 }
 
@@ -86,6 +98,27 @@ popcnt(nuint n)
           : "+r" (n)
           );
   return n;
+}
+
+static inline nuint
+bit_index( uint bit_n, uint64_t v )
+{
+  return bit_n ? popcnt(v << (sizeof(v) * CHAR_BIT - bit_n)) : 0;
+}
+
+static inline uint_fast32_t
+bit_index4(uint bit_n, const uint64_t* buf)
+{
+  uint byte_n = bit_n / (sizeof(buf[0]) * CHAR_BIT);
+
+  if(byte_n == 0) return bit_index( bit_n, buf[0] );
+
+  uint subbit_n = bit_n % (sizeof(buf[0]) * CHAR_BIT);
+
+  return popcnt(buf[0]) +
+    (popcnt(buf[1]) * (byte_n>1)) +
+    (popcnt(buf[2]) * (byte_n>2)) +
+    bit_index( subbit_n, buf[byte_n] );
 }
 
 static void *
@@ -143,7 +176,7 @@ bs_new(nuint n_sets, nuint n_bits)
   bs->sets = safe_alloc( n_sets, sizeof(BS_Set), true );
   bs->max_set_id = n_sets - 1;
   bs->max_bit_id = n_bits - 1;
-  for(bs->depth = 0; n_bits > 128; ++bs->depth) n_bits /= 128;
+  for(bs->depth = 0; BUCKET_SIZES[bs->depth+1] < n_bits; ++bs->depth);
   return bs;
 }
 
@@ -173,22 +206,16 @@ is_0_or_power_of_2(nuint v)
   return (v&(v-1))==0;
 }
 
-static inline nuint
-bit_index( nuint bit_n, nuint v )
-{
-  return bit_n ? popcnt(v << (sizeof(v) * CHAR_BIT - bit_n)) : 0;
-}
-
 static uintptr_t *
-insert_v(BS_Node **nodep, nuint bit_n, uintptr_t v)
+insert_v(BS_Node **nodep, uint bit_n, uintptr_t v)
 {
   BS_Node *node = *nodep;
-  nuint n_bits = popcnt(node->mask);
+  uint n_bits = popcnt4( node->branch_map );
 
-  assert( (node->mask & (1L<<bit_n)) == 0 );
-  node->mask |= (1L<<bit_n);
+  assert( BITTEST(node->branch_map, bit_n) == 0 );
+  BITSET( node->branch_map, bit_n );
 
-  nuint bucket_n = bit_index(bit_n, node->mask);
+  nuint bucket_n = bit_index4(bit_n, node->branch_map);
 
   size_t current_size = is_0_or_power_of_2(n_bits) ? n_bits : next_power_of_2(n_bits);
   size_t new_size = current_size;
@@ -229,38 +256,31 @@ find_leaf(BS_Node **nodep, nuint depth, nuint i, bool create)
     }
   }
 
-  nuint bucket_size = NUINT_BIT;
-  for(nuint d = depth; d; --d) {
-    bucket_size *= NUINT_BIT;
-  }
-
-  nuint bit_n = i / bucket_size; // 0 - 63
-  assert(bit_n < NUINT_BIT);
-
-  nuint bit_v = 1L << bit_n;
+  uint bucket_size = BUCKET_SIZES[depth];
+  nuint bit_n = i / bucket_size; // 0 - 255
 
   /* in val: descend */
   /* else in mask and create: set in val, wipe child val, descend */
   /* create: insert, descend */
 
 
-  if(node->value & bit_v) {
-    nuint branch_n = bit_index( bit_n, node->mask );
+  if(BITTEST(node->value, bit_n)) {
+    uint branch_n = bit_index4( bit_n, node->branch_map );
     if(depth == 0) return &node->branches[branch_n];
     else return find_leaf( (BS_Node**)&node->branches[branch_n], depth - 1, i % bucket_size, create);
-  } else if (create && (node->mask & bit_v)!=0) {
-    nuint branch_n = bit_index( bit_n, node->mask );
-    node->value |= bit_v;
+  } else if (create && BITTEST(node->branch_map, bit_n)) {
+    uint branch_n = bit_index4( bit_n, node->branch_map );
+    BITSET(node->value, bit_n);
     if(depth == 0) {
       node->branches[branch_n] = 0;
       return &node->branches[branch_n];
     } else {
       BS_Node *child = (BS_Node*)node->branches[branch_n];
-      child->value = 0;
+      memset(child->value, 0, sizeof(child->value));
       return find_leaf( (BS_Node**)&node->branches[branch_n], depth - 1, i % bucket_size, create);
     }
   } else if (create) {
-    node->value |= bit_v;
+    BITSET(node->value, bit_n);
     if(depth == 0) return insert_v( nodep, bit_n, 0 );
     else return find_leaf( (BS_Node**)insert_node(nodep, bit_n), depth - 1, i % bucket_size, create );
   }
@@ -311,14 +331,11 @@ add_v( nuint **vs, size_t *alloced_vs, size_t *n_vs, nuint v )
 static void
 find_nuints( BS_Node *node, nuint depth, nuint base, nuint **vs, size_t *alloced_vs, size_t *n_vs )
 {
-  nuint bucket_size = NUINT_BIT;
-  for(nuint d = depth; d; --d) {
-    bucket_size *= NUINT_BIT;
-  }
+  nuint bucket_size = BUCKET_SIZES[depth];
 
   nuint bucket_n = 0;
-  for(nuint i = 0; i < NUINT_BIT; ++i) {
-    if(node->value & (1L<<i)) {
+  for(nuint i = 0; i < sizeof(node->value)*CHAR_BIT; ++i) {
+    if(BITTEST(node->value, i)) {
       if(depth == 0) {
         for(nuint j = 0; j < NUINT_BIT; ++j) {
           if(node->branches[bucket_n] & (1L<<j)) {
@@ -329,7 +346,7 @@ find_nuints( BS_Node *node, nuint depth, nuint base, nuint **vs, size_t *alloced
         find_nuints( (BS_Node*)node->branches[bucket_n], depth - 1, base + (bucket_size * i), vs, alloced_vs, n_vs );
       }
       bucket_n += 1;
-    } else if (node->mask & (1L<<i)) {
+    } else if (BITTEST(node->branch_map, i)) {
       bucket_n += 1;
     }
   }
@@ -355,38 +372,44 @@ bs_to_nuints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
   return vs;
 }
 
-static nuint
+static uint
 intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
 {
   for(uint n = 0; n < n_vs; ++n) {
-    node->value &= others[n]->value;
+    node->value[0] &= others[n]->value[0];
+    node->value[1] &= others[n]->value[1];
+    node->value[2] &= others[n]->value[2];
+    node->value[3] &= others[n]->value[3];
   }
 
-  nuint v = node->value;
   uint my_b = 0;
-  while(v) {
-    nuint bit_v = (v & ~(v-1));
-    v ^= bit_v;
+  for(uint vi = 0; vi < 4; ++vi) {
+    uint64_t v = node->value[vi];
+    while(v) {
+      uint64_t bit_v = (v & ~(v-1));
+      v ^= bit_v;
+      uint64_t bit_n = __builtin_ctzll(bit_v) + (vi*64);
 
-    for(uint n = 0; n < n_vs; ++n) {
-      uint b = popcnt( others[n]->mask & (bit_v-1) );
-      if(depth == 0) {
-        if((node->branches[my_b] &= others[n]->branches[b]) == 0) {
-          node->value ^= bit_v;
-          break;
-        }
-      } else {
-        if(intersect_nodes((BS_Node*)node->branches[my_b], depth - 1, 1, (BS_Node**)&others[n]->branches[b]) == 0) {
-          node->value ^= bit_v;
-          break;
+      for(uint n = 0; n < n_vs; ++n) {
+        uint b = bit_index4( bit_n, others[n]->branch_map );
+        if(depth == 0) {
+          if((node->branches[my_b] &= others[n]->branches[b]) == 0) {
+            node->value[vi] &= ~bit_v;
+            break;
+          }
+        } else {
+          if(intersect_nodes((BS_Node*)node->branches[my_b], depth - 1, 1, (BS_Node**)&others[n]->branches[b]) == 0) {
+            node->value[vi] &= ~bit_v;
+            break;
+          }
         }
       }
-    }
 
-    my_b += 1;
+      my_b += 1;
+    }
   }
 
-  return node->value;
+  return my_b;
 }
 
 void
@@ -426,4 +449,101 @@ void
 bs_reset(BS_State *bs)
 {
   assert(bs);
+}
+
+static void
+node_to_gv(BS_Node *node, uint depth, uint64_t base, FILE *fp)
+{
+  nuint bucket_size = BUCKET_SIZES[depth];
+  fprintf(fp, "\tnode_%p [label=<", node);
+  fprintf(fp, "\t\t<table border=\"0\" cellborder=\"1\" cellspacing=\"0\">");
+  fprintf(fp, "\t\t<tr><td colspan=\"%"PRIuFAST32"\">node %p, range %" PRIu64 " - %" PRIu64 "</td></tr>\n",
+          popcnt4(node->branch_map)+1,
+          node, base, base + (bucket_size * sizeof(node->value)*CHAR_BIT));
+
+  fprintf(fp, "\t\t<tr><td>range</td>");
+  for(uint bit_n = sizeof(node->value)*CHAR_BIT; bit_n--;) {
+    if ( BITTEST(node->branch_map, bit_n)) {
+      fprintf(fp, "<td>%"PRIu64" -<br/>%"PRIu64"</td>",
+              base + (bit_n * bucket_size),
+              base + ((bit_n+1) * bucket_size));
+    }
+  }
+  fprintf(fp, "</tr>\n");
+  fprintf(fp, "\t\t<tr><td>val</td>");
+  for(uint bit_n = sizeof(node->value)*CHAR_BIT; bit_n--;) {
+    if( BITTEST(node->value, bit_n) ) {
+      fprintf(fp, "<td>%u</td>", bit_n);
+    } else if ( BITTEST(node->branch_map, bit_n)) {
+      fprintf(fp, "<td> </td>");
+    }
+  }
+  fprintf(fp, "</tr>\n");
+  fprintf(fp, "\t\t<tr><td>map</td>");
+  for(uint bit_n = sizeof(node->value)*CHAR_BIT; bit_n--;) {
+    if( BITTEST(node->branch_map, bit_n) ) {
+      fprintf(fp, "<td port=\"b%u\">%u</td>", bit_n, bit_n);
+    }
+  }
+  fprintf(fp, "</tr></table>>];\n");
+
+  uint branch_n = 0;
+  for(uint bit_n = 0; bit_n < sizeof(node->value)*CHAR_BIT; bit_n++) {
+    if( BITTEST(node->branch_map, bit_n) ) {
+      if(depth==0) {
+        fprintf(fp, "node_%p:b%d:s -> node_%p_br%u:n;\n", node, bit_n, node, branch_n);
+      } else {
+        fprintf(fp, "node_%p:b%d:s -> node_%p:n;\n", node, bit_n, (void*)node->branches[branch_n]);
+      }
+      branch_n++;
+    }
+  }
+
+  if(depth == 0) {
+    branch_n = 0;
+    for(uint bit_n = 0; bit_n < sizeof(node->value)*CHAR_BIT; bit_n++) {
+      if( BITTEST(node->branch_map, bit_n) ) {
+        fprintf(fp, "node_%p_br%u [label=<\n", node, branch_n);
+        fprintf(fp, "\t\t<table border=\"0\" cellborder=\"1\" cellspacing=\"0\">");
+        if(popcnt(node->branches[branch_n]) == 0) {
+          fprintf(fp, "<tr><td bgcolor=\"red\">ZERO</td></tr>");
+        } else {
+            for(uint n = sizeof(node->branches[0])*CHAR_BIT; n--;) {
+              if( node->branches[branch_n] & (1L<<n) ) {
+                fprintf(fp, "<tr><td>%" PRIu64 "</td></tr>", base + (bit_n * bucket_size) + n);
+              }
+            }
+        }
+        fprintf(fp, "</table>>];\n");
+        branch_n++;
+      }
+    }
+  } else {
+    /*
+    fprintf(fp, "\t{rank=same; ");
+    for(uint b = branch_n; b--;) {
+      fprintf(fp, "node_%p%s", (BS_Node*)node->branches[b], (b!=0) ? "," : "" );
+    }
+    fprintf(fp, "}\n");
+    */
+    branch_n = 0;
+    for(uint bit_n = 0; bit_n < sizeof(node->value)*CHAR_BIT; bit_n++) {
+      if( BITTEST(node->branch_map, bit_n) ) {
+        node_to_gv( (BS_Node*)node->branches[branch_n], depth - 1, base + (bit_n * bucket_size), fp );
+        branch_n++;
+      }
+    }
+  }
+}
+
+void
+bs_to_gv(BS_State *bs, BS_SetID set_id, const char *fn)
+{
+  FILE *fp = fopen(fn, "w");
+  if (!fp) return;
+  fprintf(fp, "digraph {\n");
+  fprintf(fp, "\tnode[shape=plaintext];\n");
+  node_to_gv( bs->sets[set_id].root, bs->depth, 0, fp );
+  fprintf(fp, "}\n");
+  fclose(fp);
 }
