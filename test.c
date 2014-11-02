@@ -221,8 +221,16 @@ time_bs_intersection()
 
   clock_gettime(CLOCK_REALTIME, &start);
   for(BS_SetID i = 1; i < 1024; ++i) {
+    struct timespec istart, istop;
     bs_copy(bs, 0, i);
+
+    clock_gettime(CLOCK_REALTIME, &istart);
     bs_intersection(bs, 0, 1024, vs);
+    clock_gettime(CLOCK_REALTIME, &istop);
+
+    printf("bs_intersection [%u]: ", i);
+    print_time_diff(&istart, &istop);
+    printf("\n");
   }
 
   clock_gettime(CLOCK_REALTIME, &stop);
