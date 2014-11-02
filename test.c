@@ -140,7 +140,16 @@ test_bs_copy()
   bs_copy( bs, 3, 2 );
   bs_copy( bs, 4, 1 );
 
-  // FIXME
+  size_t n_vs;
+  nuint *nuints = bs_to_nuints( bs, 3, &n_vs );
+  assert( n_vs == 25 );
+  assert( memcmp( nuints, ns2, n_vs*sizeof(nuint)) == 0 );
+  free(nuints);
+
+  nuints = bs_to_nuints( bs, 4, &n_vs );
+  assert( n_vs == 25 );
+  assert( memcmp( nuints, ns1, n_vs*sizeof(nuint)) == 0 );
+  free(nuints);
 
   bs_destroy(bs);
 }

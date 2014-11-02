@@ -221,7 +221,7 @@ insert_v(BS_Node **nodep, uint bit_n, uintptr_t v)
   size_t new_size = current_size;
 
   if(n_bits + 1 > current_size) {
-    new_size = current_size ? current_size * 2 : 16;
+    new_size = current_size ? current_size * 2 : 2;
     node = safe_realloc(node, 1, sizeof(BS_Node) + (sizeof(uintptr_t) * new_size));
     *nodep = node;
   }
@@ -382,6 +382,17 @@ intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
     node->value[3] &= others[n]->value[3];
   }
 
+  if(depth == 0 && n_vs == 1 && popcnt4(node->branch_map) == (64*4) && popcnt4(others[0]->branch_map) == (64*4)) {
+    uint br = 255;
+    for(uint bi = 0; bi < 256; ++bi) {
+      if((node->branches[bi] &= others[0]->branches[bi]) == 0) {
+        BITCLEAR(node->value, bi);
+        br -= 1;
+      }
+    }
+    return br;
+  }
+
   uint my_b = 0;
   for(uint vi = 0; vi < 4; ++vi) {
     uint64_t v = node->value[vi];
@@ -427,22 +438,78 @@ bs_intersection(BS_State *bs, BS_SetID set_id, size_t n_vs, const BS_SetID *vs)
   intersect_nodes( node, bs->depth, n_vs, others );
 }
 
+static BS_Node *
+copy_node(BS_Node *src, uint depth)
+{
+  uint n_val_bits = popcnt4( src->value );
+
+  size_t branches_size = is_0_or_power_of_2(n_val_bits) ? n_val_bits : next_power_of_2(n_val_bits);
+
+  BS_Node *dst = safe_alloc( 1, sizeof(BS_Node) + (branches_size * sizeof(uintptr_t)), false );
+  memcpy( dst->branch_map, src->value, sizeof(src->value) );
+  memcpy( dst->value, src->value, sizeof(src->value) );
+
+  uint dst_b = 0;
+  for(uint vi = 0; vi < 4; ++vi) {
+    uint64_t v = src->value[vi];
+    while(v) {
+      uint64_t bit_v = (v & ~(v-1));
+      v ^= bit_v;
+      uint64_t bit_n = __builtin_ctzll(bit_v) + (vi*64);
+
+      uint src_b = bit_index4( bit_n, src->branch_map );
+      //printf("depth=%u v=%"PRIu64", bit_v=%"PRIu64", bit_n=%"PRIu64", src_b=%u->%u\n", depth, v, bit_v, bit_n, src_b, dst_b);
+      if(depth == 0) {
+        dst->branches[dst_b] = src->branches[src_b];
+      } else {
+        dst->branches[dst_b] = (uintptr_t)copy_node((BS_Node*)src->branches[src_b], depth - 1);
+      }
+
+      dst_b += 1;
+    }
+  }
+
+  /*printf("dst->branch_map: %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64"\n",
+         dst->branch_map[0], dst->branch_map[1], dst->branch_map[2], dst->branch_map[3]);
+  printf("dst->value: %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64"\n",
+         dst->value[0], dst->value[1], dst->value[2], dst->value[3]);
+  */
+  return dst;
+}
+
 void
 bs_copy(BS_State *bs, BS_SetID set_id, BS_SetID src_set_id)
 {
   bs_clear(bs, set_id);
-  /* HACK */
-  size_t n_vs;
-  nuint *nuints = bs_to_nuints(bs, src_set_id, &n_vs);
-  bs_add(bs, set_id, n_vs, nuints);
-  free(nuints);
+  if(bs->sets[src_set_id].root == NULL) return;
+  bs->sets[set_id].root = copy_node( bs->sets[src_set_id].root, bs->depth );
+}
+
+static void
+free_node(BS_Node *node, uint depth)
+{
+  uint b = 0;
+  for(uint vi = 0; vi < 4; ++vi) {
+    uint64_t v = node->value[vi];
+    while(v) {
+      uint64_t bit_v = (v & ~(v-1));
+      v ^= bit_v;
+      if(depth > 1) free_node( (BS_Node*)node->branches[b], depth - 1);
+      else free( (void*) node->branches[b] );
+      b += 1;
+    }
+  }
+  free(node);
 }
 
 void
 bs_clear(BS_State *bs, BS_SetID set_id)
 {
   assert(set_id <= bs->max_set_id);
-  bs->sets[set_id].root = NULL; /* HACK */
+  if(bs->sets[set_id].root != NULL) {
+    free_node(bs->sets[set_id].root, bs->depth);
+    bs->sets[set_id].root = NULL;
+  }
 }
 
 void
@@ -546,4 +613,44 @@ bs_to_gv(BS_State *bs, BS_SetID set_id, const char *fn)
   node_to_gv( bs->sets[set_id].root, bs->depth, 0, fp );
   fprintf(fp, "}\n");
   fclose(fp);
+}
+
+void
+tree_debug_header()
+{
+  printf("node\tdepth\tmapsize\tvalsize\tuse%%\tbytes\n");
+}
+
+size_t
+tree_debug(BS_Node *node, uint depth)
+{
+  uint n_map_bits = popcnt4( node->branch_map );
+  uint n_val_bits = popcnt4( node->value );
+  size_t branches_size = is_0_or_power_of_2(n_val_bits) ? n_val_bits : next_power_of_2(n_val_bits);
+  size_t child_size = 0;
+
+  uint dst_b = 0;
+  for(uint vi = 0; vi < 4; ++vi) {
+    uint64_t v = node->branch_map[vi];
+    while(v) {
+      uint64_t bit_v = (v & ~(v-1));
+      v ^= bit_v;
+      //uint64_t bit_n = __builtin_ctzll(bit_v) + (vi*64);
+      if(depth == 0) {
+        /*
+        uint pc = popcnt(node->branches[dst_b]);
+        printf("%p\t[%"PRIu64"/%u]\t-\t%u\t%.2f\t-\n",
+               node, bit_n, dst_b, pc, (pc/256.0)*100);
+        */
+      } else {
+        child_size += tree_debug((BS_Node*)node->branches[dst_b], depth - 1);
+      }
+      dst_b += 1;
+    }
+  }
+  printf("%p\t%u\t%u\t%u\t%.2f\t%zu+%zu\n",
+         node, depth, n_map_bits, n_val_bits, (n_map_bits/256.0)*100,
+         sizeof(BS_Node) + (branches_size * sizeof(uintptr_t)), child_size);
+
+  return sizeof(BS_Node) + (branches_size * sizeof(uintptr_t)) + child_size;
 }
