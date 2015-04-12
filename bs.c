@@ -373,6 +373,52 @@ bs_to_nuints(BS_State *bs, BS_SetID set_id, size_t *n_vs)
 }
 
 static uint
+intersect_node(BS_Node *node, int depth, BS_Node *other)
+{
+  node->value[0] &= other->value[0];
+  node->value[1] &= other->value[1];
+  node->value[2] &= other->value[2];
+  node->value[3] &= other->value[3];
+
+  if(depth == 0 && popcnt4(node->branch_map) == (64*4) && popcnt4(other->branch_map) == (64*4)) {
+    uint br = 255;
+    for(uint bi = 0; bi < 256; ++bi) {
+      if((node->branches[bi] &= other->branches[bi]) == 0) {
+        BITCLEAR(node->value, bi);
+        br -= 1;
+      }
+    }
+    return br;
+  }
+
+  uint my_b = 0;
+  for(uint vi = 0; vi < 4; ++vi) {
+    uint64_t v = node->value[vi];
+    while(v) {
+      uint64_t bit_v = (v & ~(v-1));
+      v ^= bit_v;
+      uint64_t bit_n = __builtin_ctzll(bit_v) + (vi*64);
+
+      if(depth == 0) {
+        uint b = bit_index4( bit_n, other->branch_map );
+        if((node->branches[my_b] &= other->branches[b]) == 0) {
+          node->value[vi] &= ~bit_v;
+        }
+      } else {
+        uint b = bit_index4( bit_n, other->branch_map );
+        if(intersect_node((BS_Node*)node->branches[my_b], depth - 1, (BS_Node*)other->branches[b]) == 0) {
+          node->value[vi] &= ~bit_v;
+        }
+      }
+
+      my_b += 1;
+    }
+  }
+
+  return my_b;
+}
+
+static uint
 intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
 {
   for(uint n = 0; n < n_vs; ++n) {
@@ -401,15 +447,18 @@ intersect_nodes(BS_Node *node, int depth, size_t n_vs, BS_Node **others)
       v ^= bit_v;
       uint64_t bit_n = __builtin_ctzll(bit_v) + (vi*64);
 
-      for(uint n = 0; n < n_vs; ++n) {
-        uint b = bit_index4( bit_n, others[n]->branch_map );
-        if(depth == 0) {
+      if(depth == 0) {
+        for(uint n = 0; n < n_vs; ++n) {
+          uint b = bit_index4( bit_n, others[n]->branch_map );
           if((node->branches[my_b] &= others[n]->branches[b]) == 0) {
             node->value[vi] &= ~bit_v;
             break;
           }
-        } else {
-          if(intersect_nodes((BS_Node*)node->branches[my_b], depth - 1, 1, (BS_Node**)&others[n]->branches[b]) == 0) {
+        }
+      } else {
+        for(uint n = 0; n < n_vs; ++n) {
+          uint b = bit_index4( bit_n, others[n]->branch_map );
+          if(intersect_node((BS_Node*)node->branches[my_b], depth - 1, (BS_Node*)others[n]->branches[b]) == 0) {
             node->value[vi] &= ~bit_v;
             break;
           }

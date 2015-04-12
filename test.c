@@ -167,11 +167,7 @@ rand_range(int min, int max)
 static void
 print_time_diff(struct timespec *start, struct timespec *stop)
 {
-  if(start->tv_sec == stop->tv_sec) {
-    printf("%d nsec", (int)(stop->tv_nsec - start->tv_nsec));
-  } else {
-    printf("%lf", (double)((stop->tv_sec - start->tv_sec) + (stop->tv_nsec - start->tv_nsec)/1000000000.0));
-  }
+  printf("%lf", (double)((stop->tv_sec - start->tv_sec) + (stop->tv_nsec - start->tv_nsec)/1000000000.0));
 }
 
 static void
